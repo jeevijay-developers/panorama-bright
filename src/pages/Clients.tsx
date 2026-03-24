@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Search, Pencil, Trash2 } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Plus, Search, Pencil, Trash2, Eye } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -26,66 +27,54 @@ interface Client {
 }
 
 const Clients = () => {
-  const { profileId, role } = useAuth();
+  const { profileId } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const [formData, setFormData] = useState({
-    full_name: "",
-    email: "",
-    phone: "",
-    address: "",
-    date_of_birth: "",
-  });
+  const [viewingClient, setViewingClient] = useState<Client | null>(null);
+  const [deletingClient, setDeletingClient] = useState<Client | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [formData, setFormData] = useState({
+    full_name: "", email: "", phone: "", address: "", date_of_birth: "",
+  });
 
   const fetchClients = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("clients")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      toast.error("Failed to load clients");
-      console.error(error);
-    } else {
-      setClients(data || []);
-    }
+    const { data, error } = await supabase.from("clients").select("*").order("created_at", { ascending: false });
+    if (error) { toast.error("Failed to load clients"); console.error(error); }
+    else setClients(data || []);
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchClients();
-  }, []);
+  useEffect(() => { fetchClients(); }, []);
 
   const filteredClients = useMemo(() => {
     return clients.filter((c) => {
-      const matchesSearch =
-        !searchTerm ||
+      const matchesSearch = !searchTerm ||
         c.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (c.email && c.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (c.phone && c.phone.includes(searchTerm));
-
-      const matchesStatus =
-        statusFilter === "all" ||
+      const matchesStatus = statusFilter === "all" ||
         (statusFilter === "active" && c.is_active) ||
         (statusFilter === "inactive" && !c.is_active);
-
       return matchesSearch && matchesStatus;
     });
   }, [clients, searchTerm, statusFilter]);
 
-  const openAddDialog = () => {
+  const openAdd = () => {
     setEditingClient(null);
     setFormData({ full_name: "", email: "", phone: "", address: "", date_of_birth: "" });
-    setDialogOpen(true);
+    setFormOpen(true);
   };
 
-  const openEditDialog = (client: Client) => {
+  const openEdit = (client: Client) => {
     setEditingClient(client);
     setFormData({
       full_name: client.full_name,
@@ -94,35 +83,24 @@ const Clients = () => {
       address: client.address || "",
       date_of_birth: client.date_of_birth || "",
     });
-    setDialogOpen(true);
+    setFormOpen(true);
   };
 
   const handleSave = async () => {
-    if (!formData.full_name.trim()) {
-      toast.error("Client name is required");
-      return;
-    }
-    if (!profileId) {
-      toast.error("Profile not loaded. Please refresh.");
-      return;
-    }
-
+    if (!formData.full_name.trim()) { toast.error("Client name is required"); return; }
+    if (!profileId) { toast.error("Profile not loaded"); return; }
     setSaving(true);
     try {
       if (editingClient) {
-        const { error } = await supabase
-          .from("clients")
-          .update({
-            full_name: formData.full_name.trim(),
-            email: formData.email.trim() || null,
-            phone: formData.phone.trim() || null,
-            address: formData.address.trim() || null,
-            date_of_birth: formData.date_of_birth || null,
-          })
-          .eq("id", editingClient.id);
-
+        const { error } = await supabase.from("clients").update({
+          full_name: formData.full_name.trim(),
+          email: formData.email.trim() || null,
+          phone: formData.phone.trim() || null,
+          address: formData.address.trim() || null,
+          date_of_birth: formData.date_of_birth || null,
+        }).eq("id", editingClient.id);
         if (error) throw error;
-        toast.success("Client updated successfully");
+        toast.success("Client updated");
       } else {
         const { error } = await supabase.from("clients").insert({
           full_name: formData.full_name.trim(),
@@ -132,28 +110,23 @@ const Clients = () => {
           date_of_birth: formData.date_of_birth || null,
           intermediary_id: profileId,
         });
-
         if (error) throw error;
-        toast.success("Client added successfully");
+        toast.success("Client added");
       }
-      setDialogOpen(false);
+      setFormOpen(false);
       fetchClients();
     } catch (error: any) {
-      toast.error(error.message || "Failed to save client");
-    } finally {
-      setSaving(false);
-    }
+      toast.error(error.message || "Failed to save");
+    } finally { setSaving(false); }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this client?")) return;
-    const { error } = await supabase.from("clients").delete().eq("id", id);
-    if (error) {
-      toast.error("Failed to delete client");
-    } else {
-      toast.success("Client deleted");
-      fetchClients();
-    }
+  const handleDelete = async () => {
+    if (!deletingClient) return;
+    const { error } = await supabase.from("clients").delete().eq("id", deletingClient.id);
+    if (error) toast.error("Failed to delete");
+    else { toast.success("Client deleted"); fetchClients(); }
+    setDeleteOpen(false);
+    setDeletingClient(null);
   };
 
   return (
@@ -163,17 +136,10 @@ const Clients = () => {
           <div className="flex items-center gap-3">
             <div className="relative w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name, email, or phone..."
-                className="pl-9"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+              <Input placeholder="Search by name, email, or phone..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-36">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
+              <SelectTrigger className="w-36"><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Clients</SelectItem>
                 <SelectItem value="active">Active</SelectItem>
@@ -181,9 +147,7 @@ const Clients = () => {
               </SelectContent>
             </Select>
           </div>
-          <Button className="gap-2" onClick={openAddDialog}>
-            <Plus className="h-4 w-4" /> Add Client
-          </Button>
+          <Button className="gap-2" onClick={openAdd}><Plus className="h-4 w-4" /> Add Client</Button>
         </div>
 
         <Card className="border-border/50">
@@ -201,17 +165,9 @@ const Clients = () => {
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      Loading clients...
-                    </TableCell>
-                  </TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
                 ) : filteredClients.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      {searchTerm || statusFilter !== "all" ? "No clients match your filters" : "No clients yet. Add your first client!"}
-                    </TableCell>
-                  </TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">{searchTerm || statusFilter !== "all" ? "No clients match your filters" : "No clients yet"}</TableCell></TableRow>
                 ) : (
                   filteredClients.map((c) => (
                     <TableRow key={c.id} className="border-border/30 hover:bg-muted/30">
@@ -220,21 +176,19 @@ const Clients = () => {
                       <TableCell className="text-muted-foreground">{c.phone || "—"}</TableCell>
                       <TableCell className="text-muted-foreground max-w-[200px] truncate">{c.address || "—"}</TableCell>
                       <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={c.is_active
-                            ? "bg-success/10 text-success border-success/30"
-                            : "bg-muted text-muted-foreground"}
-                        >
+                        <Badge variant="outline" className={c.is_active ? "bg-success/10 text-success border-success/30" : "bg-muted text-muted-foreground"}>
                           {c.is_active ? "Active" : "Inactive"}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(c)}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setViewingClient(c); setViewOpen(true); }}>
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(c.id)}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { setDeletingClient(c); setDeleteOpen(true); }}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
@@ -249,69 +203,81 @@ const Clients = () => {
       </div>
 
       {/* Add/Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{editingClient ? "Edit Client" : "Add New Client"}</DialogTitle>
+            <DialogDescription>{editingClient ? "Update client information" : "Enter details for the new client"}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="client-name">Full Name *</Label>
-              <Input
-                id="client-name"
-                placeholder="Enter client name"
-                value={formData.full_name}
-                onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-              />
+              <Label>Full Name *</Label>
+              <Input placeholder="Enter client name" value={formData.full_name} onChange={(e) => setFormData({ ...formData, full_name: e.target.value })} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label htmlFor="client-email">Email</Label>
-                <Input
-                  id="client-email"
-                  type="email"
-                  placeholder="client@email.com"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                />
+                <Label>Email</Label>
+                <Input type="email" placeholder="client@email.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="client-phone">Phone</Label>
-                <Input
-                  id="client-phone"
-                  placeholder="9876543210"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                />
+                <Label>Phone</Label>
+                <Input placeholder="9876543210" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="client-address">Address</Label>
-              <Input
-                id="client-address"
-                placeholder="Full address"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-              />
+              <Label>Address</Label>
+              <Input placeholder="Full address" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="client-dob">Date of Birth</Label>
-              <Input
-                id="client-dob"
-                type="date"
-                value={formData.date_of_birth}
-                onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
-              />
+              <Label>Date of Birth</Label>
+              <Input type="date" value={formData.date_of_birth} onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? "Saving..." : editingClient ? "Update" : "Add Client"}
-            </Button>
+            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>{saving ? "Saving..." : editingClient ? "Update" : "Add Client"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* View Dialog */}
+      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Client Details</DialogTitle>
+            <DialogDescription>Viewing client information</DialogDescription>
+          </DialogHeader>
+          {viewingClient && (
+            <div className="space-y-3 py-2">
+              <div><Label className="text-muted-foreground text-xs">Name</Label><p className="font-medium">{viewingClient.full_name}</p></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-muted-foreground text-xs">Email</Label><p>{viewingClient.email || "—"}</p></div>
+                <div><Label className="text-muted-foreground text-xs">Phone</Label><p>{viewingClient.phone || "—"}</p></div>
+              </div>
+              <div><Label className="text-muted-foreground text-xs">Address</Label><p>{viewingClient.address || "—"}</p></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-muted-foreground text-xs">Date of Birth</Label><p>{viewingClient.date_of_birth || "—"}</p></div>
+                <div><Label className="text-muted-foreground text-xs">Status</Label><Badge variant="outline" className={viewingClient.is_active ? "bg-success/10 text-success border-success/30" : "bg-muted text-muted-foreground"}>{viewingClient.is_active ? "Active" : "Inactive"}</Badge></div>
+              </div>
+              <div><Label className="text-muted-foreground text-xs">Created</Label><p className="text-sm">{new Date(viewingClient.created_at).toLocaleDateString()}</p></div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Client</AlertDialogTitle>
+            <AlertDialogDescription>Are you sure you want to delete "{deletingClient?.full_name}"? This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 };
