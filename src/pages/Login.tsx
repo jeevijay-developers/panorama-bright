@@ -47,12 +47,8 @@ const Login = () => {
       </Button>
 
       <div className="w-full max-w-md space-y-6">
-        <div className="flex flex-col items-center gap-3">
-          <img src={logo} alt="RiskMarshal" className="h-16 w-auto object-contain dark:brightness-110" />
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-foreground tracking-tight">RiskMarshal</h1>
-            <p className="text-sm text-muted-foreground">Insurance CRM Platform</p>
-          </div>
+        <div className="flex justify-center">
+          <img src={logo} alt="RiskMarshall" className="h-20 w-auto object-contain dark:brightness-110" />
         </div>
 
         <Card className="border-border/50">
