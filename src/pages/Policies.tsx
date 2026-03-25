@@ -146,7 +146,7 @@ const Policies = () => {
         const updatePayload = docUrl ? { ...payload, original_document_url: docUrl } : payload;
         const { error } = await supabase.from("policies").update(updatePayload).eq("id", editingPolicy.id);
         if (error) throw error;
-        toast.success("Policy updated");
+        toast.success("Policy updated successfully");
       } else {
         const { data, error } = await supabase.from("policies").insert({ ...payload, intermediary_id: profileId }).select().single();
         if (error) throw error;
@@ -154,7 +154,12 @@ const Policies = () => {
           const docUrl = await uploadDocument(data.id);
           if (docUrl) await supabase.from("policies").update({ original_document_url: docUrl }).eq("id", data.id);
         }
-        toast.success("Policy created");
+        toast.success("Policy created successfully", {
+          action: {
+            label: "Send Quotation",
+            onClick: () => navigate(`/quotations?policy_id=${data.id}&client_id=${data.client_id}&amount=${data.premium_amount}`),
+          },
+        });
       }
       setFormOpen(false);
       fetchData();
