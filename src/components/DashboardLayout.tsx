@@ -27,12 +27,7 @@ function DashboardLayoutInner() {
               <Button variant="ghost" size="icon" className="text-muted-foreground" onClick={toggleTheme}>
                 {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </Button>
-              <Button variant="ghost" size="icon" className="text-muted-foreground relative">
-                <Bell className="h-4 w-4" />
-                <span className="absolute -top-0.5 -right-0.5 h-3 w-3 bg-destructive rounded-full text-[8px] flex items-center justify-center text-destructive-foreground">
-                  3
-                </span>
-              </Button>
+              <NotificationBell />
               <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-semibold">
                 AD
               </div>
