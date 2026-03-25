@@ -3,10 +3,16 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { Bell, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/contexts/ThemeContext";
+import { Outlet, useOutletContext } from "react-router-dom";
 
 interface DashboardLayoutProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   title?: string;
+}
+
+/** Hook for pages to set the page title via outlet context */
+export function usePageTitle() {
+  return useOutletContext<{ title: string }>();
 }
 
 export function DashboardLayout({ children, title }: DashboardLayoutProps) {
@@ -40,7 +46,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             </div>
           </header>
           <main className="flex-1 p-6 overflow-auto">
-            {children}
+            {children ?? <Outlet />}
           </main>
         </div>
       </div>
