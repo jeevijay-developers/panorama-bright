@@ -1,15 +1,12 @@
-import { createContext, useContext, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 
-interface PageTitleContextType {
-  title: string;
-  setTitle: (title: string) => void;
-}
-
-const PageTitleContext = createContext<PageTitleContextType>({ title: "", setTitle: () => {} });
+const PageTitleContext = createContext<{ title: string; setTitle: (t: string) => void }>({
+  title: "",
+  setTitle: () => {},
+});
 
 export function PageTitleProvider({ children }: { children: ReactNode }) {
-  const [title, setTitleState] = useState("");
-  const setTitle = useCallback((t: string) => setTitleState(t), []);
+  const [title, setTitle] = useState("");
   return (
     <PageTitleContext.Provider value={{ title, setTitle }}>
       {children}
@@ -17,14 +14,13 @@ export function PageTitleProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function usePageTitle(newTitle?: string) {
-  const ctx = useContext(PageTitleContext);
-  // Allow pages to set title on mount
-  return ctx;
-}
-
+/** Call in each page component to set the header title */
 export function useSetPageTitle(title: string) {
   const { setTitle } = useContext(PageTitleContext);
-  // We need useEffect but can't import here cleanly, so just expose setTitle
-  return setTitle;
+  useEffect(() => { setTitle(title); }, [title, setTitle]);
+}
+
+/** Used by DashboardLayout to read the current title */
+export function usePageTitle() {
+  return useContext(PageTitleContext).title;
 }
