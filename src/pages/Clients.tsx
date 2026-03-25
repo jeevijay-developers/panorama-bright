@@ -129,8 +129,10 @@ const Clients = () => {
     setDeletingClient(null);
   };
 
+  useSetPageTitle("Clients");
+
   return (
-    <DashboardLayout title="Clients">
+    <>
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
