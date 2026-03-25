@@ -17,6 +17,7 @@ import Insurers from "./pages/Insurers";
 import Commissions from "./pages/Commissions";
 import Reports from "./pages/Reports";
 import SettingsPage from "./pages/SettingsPage";
+import StaffPage from "./pages/StaffPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
