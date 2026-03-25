@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Users, FileText, FileCheck, RefreshCw, Target,
-  Building2, DollarSign, BarChart3, Settings, LogOut,
+  Building2, DollarSign, BarChart3, Settings, LogOut, UserCog,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
