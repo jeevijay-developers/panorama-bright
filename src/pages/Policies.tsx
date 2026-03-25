@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ const statusColor: Record<string, string> = {
 };
 
 const Policies = () => {
+  const navigate = useNavigate();
   const { profileId, role } = useAuth();
   const isAdmin = role === "super_admin";
   const [policies, setPolicies] = useState<PolicyWithRelations[]>([]);
@@ -146,7 +148,7 @@ const Policies = () => {
         const updatePayload = docUrl ? { ...payload, original_document_url: docUrl } : payload;
         const { error } = await supabase.from("policies").update(updatePayload).eq("id", editingPolicy.id);
         if (error) throw error;
-        toast.success("Policy updated");
+        toast.success("Policy updated successfully");
       } else {
         const { data, error } = await supabase.from("policies").insert({ ...payload, intermediary_id: profileId }).select().single();
         if (error) throw error;
@@ -154,7 +156,12 @@ const Policies = () => {
           const docUrl = await uploadDocument(data.id);
           if (docUrl) await supabase.from("policies").update({ original_document_url: docUrl }).eq("id", data.id);
         }
-        toast.success("Policy created");
+        toast.success("Policy created successfully", {
+          action: {
+            label: "Send Quotation",
+            onClick: () => navigate(`/quotations?policy_id=${data.id}&client_id=${data.client_id}&amount=${data.premium_amount}`),
+          },
+        });
       }
       setFormOpen(false);
       fetchData();
@@ -185,6 +192,7 @@ const Policies = () => {
       
       const { error: uploadErr } = await supabase.storage.from("policy-documents").upload(path, uploadFile);
       if (uploadErr) throw new Error("Upload failed: " + uploadErr.message);
+      toast.info("Document uploaded, starting AI analysis...");
 
       // Step 1: AI analyzing
       setExtractionStep(1);
@@ -204,6 +212,7 @@ const Policies = () => {
 
       // Step 2: Extracting fields
       setExtractionStep(2);
+      toast.info("AI is extracting policy fields...");
 
       const { data: extractResult, error: extractErr } = await supabase.functions.invoke("extract-policy-data", {
         body: { policyId: newPolicy.id, documentPath: path },
@@ -213,6 +222,7 @@ const Policies = () => {
 
       // Step 3: Done
       setExtractionStep(3);
+      toast.success("Data extracted successfully! Review the fields below.");
       setExtractedData({ ...extractResult.data, _policyId: newPolicy.id, _documentPath: path });
 
       setTimeout(() => {
@@ -331,7 +341,12 @@ const Policies = () => {
       }).eq("id", reviewFormData._policyId);
 
       if (error) throw error;
-      toast.success("Policy saved from extracted data");
+      toast.success("Policy saved from extracted data", {
+        action: {
+          label: "Send Quotation",
+          onClick: () => navigate(`/quotations?policy_id=${reviewFormData._policyId}&client_id=${reviewFormData.client_id}&amount=${Number(reviewFormData.final_premium) || Number(reviewFormData.net_premium) || 0}`),
+        },
+      });
       setReviewOpen(false);
       fetchData();
     } catch (e: any) { toast.error(e.message || "Save failed"); }

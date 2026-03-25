@@ -46,22 +46,12 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center">
           <img
             src={logo}
-            alt="RiskMarshal"
-            className="h-8 w-8 shrink-0 object-contain dark:brightness-110"
+            alt="RiskMarshall"
+            className={`${collapsed ? "h-8 w-8" : "h-10 w-auto"} shrink-0 object-contain dark:brightness-110 transition-all`}
           />
-          {!collapsed && (
-            <div className="flex flex-col">
-              <span className="text-sm font-bold text-foreground tracking-tight">
-                RiskMarshal
-              </span>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
-                Insurance CRM
-              </span>
-            </div>
-          )}
         </div>
       </SidebarHeader>
 
