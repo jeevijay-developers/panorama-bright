@@ -34,6 +34,7 @@ const statusColor: Record<string, string> = {
 };
 
 const Policies = () => {
+  const navigate = useNavigate();
   const { profileId, role } = useAuth();
   const isAdmin = role === "super_admin";
   const [policies, setPolicies] = useState<PolicyWithRelations[]>([]);
