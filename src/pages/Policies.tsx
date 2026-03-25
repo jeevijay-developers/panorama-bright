@@ -192,6 +192,7 @@ const Policies = () => {
       
       const { error: uploadErr } = await supabase.storage.from("policy-documents").upload(path, uploadFile);
       if (uploadErr) throw new Error("Upload failed: " + uploadErr.message);
+      toast.info("Document uploaded, starting AI analysis...");
 
       // Step 1: AI analyzing
       setExtractionStep(1);
@@ -211,6 +212,7 @@ const Policies = () => {
 
       // Step 2: Extracting fields
       setExtractionStep(2);
+      toast.info("AI is extracting policy fields...");
 
       const { data: extractResult, error: extractErr } = await supabase.functions.invoke("extract-policy-data", {
         body: { policyId: newPolicy.id, documentPath: path },
@@ -220,6 +222,7 @@ const Policies = () => {
 
       // Step 3: Done
       setExtractionStep(3);
+      toast.success("Data extracted successfully! Review the fields below.");
       setExtractedData({ ...extractResult.data, _policyId: newPolicy.id, _documentPath: path });
 
       setTimeout(() => {
