@@ -17,6 +17,7 @@ import Insurers from "./pages/Insurers";
 import Commissions from "./pages/Commissions";
 import Reports from "./pages/Reports";
 import SettingsPage from "./pages/SettingsPage";
+import StaffPage from "./pages/StaffPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -40,6 +41,7 @@ const App = () => (
               <Route path="insurers" element={<Insurers />} />
               <Route path="commissions" element={<Commissions />} />
               <Route path="reports" element={<Reports />} />
+              <Route path="staff" element={<StaffPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
             <Route path="*" element={<NotFound />} />
