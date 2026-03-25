@@ -1,9 +1,10 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import { Bell, Sun, Moon } from "lucide-react";
+import { Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/contexts/ThemeContext";
 import { usePageTitle, PageTitleProvider } from "@/contexts/PageTitleContext";
+import { NotificationBell } from "@/components/NotificationBell";
 import { Outlet } from "react-router-dom";
 
 function DashboardLayoutInner() {
