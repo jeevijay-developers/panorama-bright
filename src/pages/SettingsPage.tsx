@@ -102,8 +102,10 @@ const SettingsPage = () => {
     } finally { setSaving(false); }
   };
 
+  useSetPageTitle("Settings & User Management");
+
   return (
-    <DashboardLayout title="Settings & User Management">
+    <>
       <div className="space-y-6">
         <Card className="border-border/50">
           <CardHeader className="pb-3">
