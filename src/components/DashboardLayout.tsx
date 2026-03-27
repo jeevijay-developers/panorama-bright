@@ -1,16 +1,15 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import { Bell, Sun, Moon } from "lucide-react";
+import { Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/contexts/ThemeContext";
+import { usePageTitle, PageTitleProvider } from "@/contexts/PageTitleContext";
+import { NotificationBell } from "@/components/NotificationBell";
+import { Outlet } from "react-router-dom";
 
-interface DashboardLayoutProps {
-  children: React.ReactNode;
-  title?: string;
-}
-
-export function DashboardLayout({ children, title }: DashboardLayoutProps) {
+function DashboardLayoutInner() {
   const { theme, toggleTheme } = useTheme();
+  const title = usePageTitle();
 
   return (
     <SidebarProvider>
@@ -28,22 +27,25 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               <Button variant="ghost" size="icon" className="text-muted-foreground" onClick={toggleTheme}>
                 {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </Button>
-              <Button variant="ghost" size="icon" className="text-muted-foreground relative">
-                <Bell className="h-4 w-4" />
-                <span className="absolute -top-0.5 -right-0.5 h-3 w-3 bg-destructive rounded-full text-[8px] flex items-center justify-center text-destructive-foreground">
-                  3
-                </span>
-              </Button>
+              <NotificationBell />
               <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-semibold">
                 AD
               </div>
             </div>
           </header>
           <main className="flex-1 p-6 overflow-auto">
-            {children}
+            <Outlet />
           </main>
         </div>
       </div>
     </SidebarProvider>
+  );
+}
+
+export function DashboardLayout() {
+  return (
+    <PageTitleProvider>
+      <DashboardLayoutInner />
+    </PageTitleProvider>
   );
 }

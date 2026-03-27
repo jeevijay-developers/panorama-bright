@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { DashboardLayout } from "@/components/DashboardLayout";
+import { useSetPageTitle } from "@/contexts/PageTitleContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -509,8 +509,10 @@ const Policies = () => {
     );
   };
 
+  useSetPageTitle("Policies");
+
   return (
-    <DashboardLayout title="Policies">
+    <>
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
@@ -934,7 +936,7 @@ const Policies = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </DashboardLayout>
+    </>
   );
 };
 

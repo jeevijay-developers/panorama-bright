@@ -241,6 +241,39 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean
+          message: string
+          reference_id: string | null
+          title: string
+          type: Database["public"]["Enums"]["notification_type"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message: string
+          reference_id?: string | null
+          title: string
+          type: Database["public"]["Enums"]["notification_type"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          reference_id?: string | null
+          title?: string
+          type?: Database["public"]["Enums"]["notification_type"]
+          user_id?: string
+        }
+        Relationships: []
+      }
       policies: {
         Row: {
           client_id: string
@@ -438,6 +471,39 @@ export type Database = {
           },
         ]
       }
+      renewal_config: {
+        Row: {
+          client_email_template: string
+          cron_schedule: string
+          enabled: boolean
+          id: string
+          intermediary_email_template: string
+          reminder_windows: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          client_email_template?: string
+          cron_schedule?: string
+          enabled?: boolean
+          id?: string
+          intermediary_email_template?: string
+          reminder_windows?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          client_email_template?: string
+          cron_schedule?: string
+          enabled?: boolean
+          id?: string
+          intermediary_email_template?: string
+          reminder_windows?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
@@ -478,6 +544,11 @@ export type Database = {
       app_role: "super_admin" | "intermediary" | "staff"
       commission_status: "pending" | "paid" | "cancelled"
       lead_status: "new" | "contacted" | "in_discussion" | "converted" | "lost"
+      notification_type:
+        | "renewal_due"
+        | "lead_assigned"
+        | "commission_paid"
+        | "commission_pending"
       payment_status: "pending" | "paid" | "expired" | "cancelled"
       policy_status: "active" | "expiring" | "expired" | "cancelled"
       renewal_status: "upcoming" | "reminder_sent" | "renewed" | "lapsed"
@@ -611,6 +682,12 @@ export const Constants = {
       app_role: ["super_admin", "intermediary", "staff"],
       commission_status: ["pending", "paid", "cancelled"],
       lead_status: ["new", "contacted", "in_discussion", "converted", "lost"],
+      notification_type: [
+        "renewal_due",
+        "lead_assigned",
+        "commission_paid",
+        "commission_pending",
+      ],
       payment_status: ["pending", "paid", "expired", "cancelled"],
       policy_status: ["active", "expiring", "expired", "cancelled"],
       renewal_status: ["upcoming", "reminder_sent", "renewed", "lapsed"],

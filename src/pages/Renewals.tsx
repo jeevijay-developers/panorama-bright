@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { DashboardLayout } from "@/components/DashboardLayout";
+import { useSetPageTitle } from "@/contexts/PageTitleContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -113,8 +113,10 @@ const Renewals = () => {
 
   const formatCurrency = (n: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 
+  useSetPageTitle("Renewals");
+
   return (
-    <DashboardLayout title="Renewals">
+    <>
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
@@ -241,7 +243,7 @@ const Renewals = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </DashboardLayout>
+    </>
   );
 };
 

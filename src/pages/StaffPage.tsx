@@ -8,10 +8,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Eye, Key } from "lucide-react";
+import { Plus, Eye } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useAuth } from "@/contexts/AuthContext";
 
 interface UserWithRole {
   id: string;
@@ -35,17 +34,13 @@ const roleLabel: Record<string, string> = {
   staff: "Staff",
 };
 
-const SettingsPage = () => {
+const StaffPage = () => {
   const [users, setUsers] = useState<UserWithRole[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   const [viewingUser, setViewingUser] = useState<UserWithRole | null>(null);
   const [saving, setSaving] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-  const [changePasswordLoading, setChangePasswordLoading] = useState(false);
-  const { role } = useAuth();
-  const isAdmin = role === "super_admin";
 
   const [formData, setFormData] = useState({
     full_name: "", email: "", password: "", role: "intermediary",
@@ -107,48 +102,11 @@ const SettingsPage = () => {
     } finally { setSaving(false); }
   };
 
-  const handleChangePassword = async () => {
-    if (newPassword.length < 6) {
-      toast.error("Password must be at least 6 characters");
-      return;
-    }
-    setChangePasswordLoading(true);
-    try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) throw error;
-      toast.success("Password updated successfully");
-      setNewPassword("");
-    } catch (e: any) {
-      toast.error(e.message || "Failed to update password");
-    } finally {
-      setChangePasswordLoading(false);
-    }
-  };
+  useSetPageTitle("Staff Management");
 
   return (
     <>
       <div className="space-y-6">
-        <Card className="border-border/50">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Key className="h-4 w-4 text-muted-foreground" />
-              Change Password
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end gap-3 max-w-sm">
-              <div className="space-y-2 flex-1">
-                <Label>New Password</Label>
-                <Input type="password" placeholder="Min 6 characters" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-              </div>
-              <Button onClick={handleChangePassword} disabled={changePasswordLoading || !newPassword}>
-                {changePasswordLoading ? "Updating..." : "Update"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {isAdmin && (
         <Card className="border-border/50">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -201,7 +159,6 @@ const SettingsPage = () => {
             </Table>
           </CardContent>
         </Card>
-        )}
       </div>
 
       {/* Add User Dialog */}
@@ -251,17 +208,35 @@ const SettingsPage = () => {
             <DialogDescription>Viewing user information</DialogDescription>
           </DialogHeader>
           {viewingUser && (
-            <div className="space-y-3 py-2">
-              <div><Label className="text-muted-foreground text-xs">Name</Label><p className="font-medium">{viewingUser.full_name || "—"}</p></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-muted-foreground text-xs">Email</Label><p>{viewingUser.email}</p></div>
-                <div><Label className="text-muted-foreground text-xs">Phone</Label><p>{viewingUser.phone || "—"}</p></div>
+            <div className="space-y-5 py-3">
+              <div className="space-y-1">
+                <Label className="text-muted-foreground text-xs">Name</Label>
+                <p className="font-medium text-base">{viewingUser.full_name || "—"}</p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-muted-foreground text-xs">Role</Label><Badge variant="outline" className={roleColor[viewingUser.role || ""]}>{roleLabel[viewingUser.role || ""] || viewingUser.role}</Badge></div>
-                <div><Label className="text-muted-foreground text-xs">Status</Label><Badge variant="outline" className={viewingUser.is_active ? "bg-success/10 text-success border-success/30" : "bg-muted text-muted-foreground"}>{viewingUser.is_active ? "Active" : "Inactive"}</Badge></div>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs">Email</Label>
+                  <p className="text-sm">{viewingUser.email}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs">Phone</Label>
+                  <p className="text-sm">{viewingUser.phone || "—"}</p>
+                </div>
               </div>
-              <div><Label className="text-muted-foreground text-xs">Created</Label><p className="text-sm">{new Date(viewingUser.created_at).toLocaleDateString()}</p></div>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-1.5">
+                  <Label className="text-muted-foreground text-xs">Role</Label>
+                  <div><Badge variant="outline" className={roleColor[viewingUser.role || ""]}>{roleLabel[viewingUser.role || ""] || viewingUser.role}</Badge></div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-muted-foreground text-xs">Status</Label>
+                  <div><Badge variant="outline" className={viewingUser.is_active ? "bg-success/10 text-success border-success/30" : "bg-muted text-muted-foreground"}>{viewingUser.is_active ? "Active" : "Inactive"}</Badge></div>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-muted-foreground text-xs">Created</Label>
+                <p className="text-sm">{new Date(viewingUser.created_at).toLocaleDateString()}</p>
+              </div>
             </div>
           )}
         </DialogContent>
@@ -270,4 +245,4 @@ const SettingsPage = () => {
   );
 };
 
-export default SettingsPage;
+export default StaffPage;

@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Users, FileText, FileCheck, RefreshCw, Target,
-  Building2, DollarSign, BarChart3, Settings, LogOut,
+  Building2, DollarSign, BarChart3, Settings, LogOut, UserCog,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -25,6 +25,7 @@ const adminItems = [
   { title: "Insurers", url: "/insurers", icon: Building2 },
   { title: "Commissions", url: "/commissions", icon: DollarSign },
   { title: "Reports", url: "/reports", icon: BarChart3 },
+  { title: "Staff", url: "/staff", icon: UserCog },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
