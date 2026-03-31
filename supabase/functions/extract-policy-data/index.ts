@@ -10,9 +10,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { policyId, documentPath } = await req.json();
-    if (!policyId || !documentPath) {
-      return new Response(JSON.stringify({ error: "policyId and documentPath are required" }), {
+    const { policyId, documentPath, documentUrl } = await req.json();
+    if (!policyId || (!documentPath && !documentUrl)) {
+      return new Response(JSON.stringify({ error: "policyId and either documentPath or documentUrl are required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -23,24 +23,40 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from("policy-documents")
-      .download(documentPath);
+    let arrayBuffer: ArrayBuffer;
+    let mimeType = "application/pdf";
 
-    if (downloadError || !fileData) {
-      return new Response(JSON.stringify({ error: "Failed to download document" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (documentPath) {
+      const { data: fileData, error: downloadError } = await supabase.storage
+        .from("policy-documents")
+        .download(documentPath);
+
+      if (downloadError || !fileData) {
+        return new Response(JSON.stringify({ error: "Failed to download document from storage" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      arrayBuffer = await fileData.arrayBuffer();
+      mimeType = fileData.type || mimeType;
+    } else {
+      const documentResponse = await fetch(documentUrl);
+      if (!documentResponse.ok) {
+        return new Response(JSON.stringify({ error: "Failed to download document from URL" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      arrayBuffer = await documentResponse.arrayBuffer();
+      mimeType = documentResponse.headers.get("content-type") || mimeType;
     }
 
-    const arrayBuffer = await fileData.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
     let binary = "";
     for (let i = 0; i < uint8Array.length; i++) {
       binary += String.fromCharCode(uint8Array[i]);
     }
     const base64 = btoa(binary);
-    const mimeType = fileData.type || "application/pdf";
 
     const geminiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,

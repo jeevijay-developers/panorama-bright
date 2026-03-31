@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Plus, Search, Pencil, Trash2, Eye, Upload, FileDown, ChevronDown } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Eye, Upload, FileDown, ChevronDown, Edit3, CheckCircle, AlertCircle, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -60,6 +60,58 @@ const Policies = () => {
   const [extractedData, setExtractedData] = useState<any>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadClientId, setUploadClientId] = useState("");
+  const [uploadInsurerId, setUploadInsurerId] = useState("");
+  const [uploadPolicyType, setUploadPolicyType] = useState("motor");
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [reviewEditMode, setReviewEditMode] = useState(true);
+
+  const normalizeExtractedData = (result: any) => {
+    const candidate =
+      result?.data?.extractedFields ??
+      result?.data?.ai?.parsed ??
+      result?.data ??
+      result?.extractedFields ??
+      result?.ai?.parsed ??
+      result;
+
+    return candidate && typeof candidate === "object" ? candidate : {};
+  };
+
+  const toDateInputValue = (value: unknown): string => {
+    if (!value) return "";
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return "";
+
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+      const parts = trimmed.match(/^(\d{1,2})[\/-.](\d{1,2})[\/-.](\d{2,4})$/);
+      if (parts) {
+        const day = parts[1].padStart(2, "0");
+        const month = parts[2].padStart(2, "0");
+        const year = parts[3].length === 2 ? `20${parts[3]}` : parts[3];
+        return `${year}-${month}-${day}`;
+      }
+
+      const parsed = new Date(trimmed);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString().split("T")[0];
+      }
+
+      return "";
+    }
+
+    if (typeof value === "number") {
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString().split("T")[0];
+      }
+    }
+
+    return "";
+  };
 
   const [formData, setFormData] = useState({
     policy_number: "", client_id: "", insurer_id: "", policy_type: "general",
@@ -132,6 +184,21 @@ const Policies = () => {
     }
   };
 
+  const uploadToPolicyStorage = async (file: File): Promise<string> => {
+    const fileExt = file.name.split(".").pop() || "pdf";
+    const filePath = `${profileId}/${crypto.randomUUID()}.${fileExt}`;
+
+    const { error } = await supabase.storage
+      .from("policy-documents")
+      .upload(filePath, file, {
+        contentType: file.type || "application/pdf",
+        upsert: false,
+      });
+
+    if (error) throw new Error(`Upload failed: ${error.message}`);
+    return filePath;
+  };
+
   const handleSave = async () => {
     if (!formData.policy_number.trim() || !formData.client_id || !formData.start_date || !formData.end_date) {
       toast.error("Policy number, client, and dates are required"); return;
@@ -185,21 +252,21 @@ const Policies = () => {
   // Upload & Extract flow
   const handleUploadAndExtract = async () => {
     if (!uploadFile || !profileId) return;
+    if (!uploadClientId) {
+      setUploadError("Please select a client before uploading");
+      return;
+    }
+
+    let createdPolicyId: string | null = null;
+
+    setUploadError(null);
     setExtractionStep(0);
     setExtractedData(null);
+    setUploading(true);
 
     try {
-      // Step 0: Upload to ImageKit
-      const tempId = crypto.randomUUID();
-      const ikForm = new FormData();
-      ikForm.append("file", uploadFile);
-      ikForm.append("fileName", `${tempId}_${uploadFile.name}`);
-      ikForm.append("folder", "/policy-documents");
-
-      const { data: ikData, error: ikErr } = await supabase.functions.invoke("imagekit-upload", { body: ikForm });
-      if (ikErr || ikData?.error) throw new Error("Upload failed: " + (ikData?.error || ikErr?.message));
-
-      const documentUrl = ikData.url as string;
+      // Step 0: Upload to Supabase Storage so OCR can download by path
+      const documentPath = await uploadToPolicyStorage(uploadFile);
       toast.info("Document uploaded, starting AI analysis...");
 
       // Step 1: AI analyzing
@@ -208,46 +275,66 @@ const Policies = () => {
       // Create a placeholder policy to store extracted data
       const { data: newPolicy, error: createErr } = await supabase.from("policies").insert({
         policy_number: "EXTRACTING-" + Date.now(),
-        client_id: clients[0]?.id || profileId,
+        client_id: uploadClientId,
+        insurer_id: uploadInsurerId || null,
+        policy_type: uploadPolicyType || "motor",
         intermediary_id: profileId,
         start_date: new Date().toISOString().split("T")[0],
         end_date: new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0],
-        original_document_url: documentUrl,
+        original_document_url: documentPath,
         status: "active" as const,
       }).select().single();
 
       if (createErr) throw new Error("Failed to create policy record: " + createErr.message);
+      createdPolicyId = newPolicy.id;
 
       // Step 2: Extracting fields
       setExtractionStep(2);
       toast.info("AI is extracting policy fields...");
 
       const { data: extractResult, error: extractErr } = await supabase.functions.invoke("extract-policy-data", {
-        body: { policyId: newPolicy.id, documentUrl },
+        body: { policyId: newPolicy.id, documentPath },
       });
 
       if (extractErr) throw new Error("Extraction failed");
 
+      const normalizedExtractedData = normalizeExtractedData(extractResult);
+
       // Step 3: Done
       setExtractionStep(3);
       toast.success("Data extracted successfully! Review the fields below.");
-      setExtractedData({ ...extractResult.data, _policyId: newPolicy.id });
+      setExtractedData({ ...normalizedExtractedData, _policyId: newPolicy.id });
 
       setTimeout(() => {
         setUploadExtractOpen(false);
+        setReviewEditMode(true);
         setReviewOpen(true);
-        prefillFormFromExtracted(extractResult.data, newPolicy.id);
+        prefillFormFromExtracted(normalizedExtractedData, newPolicy.id, {
+          clientId: uploadClientId,
+          insurerId: uploadInsurerId,
+          policyType: uploadPolicyType,
+        });
       }, 1000);
 
     } catch (e: any) {
+      if (createdPolicyId) {
+        await supabase.from("policies").delete().eq("id", createdPolicyId);
+      }
       toast.error(e.message || "Extraction failed");
+      setExtractionStep(0);
       setUploadExtractOpen(false);
+    } finally {
+      setUploading(false);
     }
   };
 
   const [reviewFormData, setReviewFormData] = useState<any>({});
 
-  const prefillFormFromExtracted = (data: any, policyId: string) => {
+  const prefillFormFromExtracted = (
+    data: any,
+    policyId: string,
+    defaults?: { clientId?: string; insurerId?: string; policyType?: string }
+  ) => {
     const pd = data?.policyDetails || {};
     const vd = data?.vehicleDetails || {};
     const pr = data?.premiumDetails || {};
@@ -260,9 +347,9 @@ const Policies = () => {
       _policyId: policyId,
       // Policy Info
       policy_number: pd.policyNumber || "",
-      policy_type: pd.policyType || pd.coverType || "general",
-      start_date: pd.periodFrom || pd.insuranceStartDate || "",
-      end_date: pd.periodTo || pd.insuranceEndDate || "",
+      policy_type: pd.policyType || pd.coverType || defaults?.policyType || "general",
+      start_date: toDateInputValue(pd.periodFrom || pd.insuranceStartDate || ""),
+      end_date: toDateInputValue(pd.periodTo || pd.insuranceEndDate || ""),
       invoice_number: pd.invoiceNumber || "",
       invoice_date: pd.invoiceDate || "",
       customer_id: pd.customerId || "",
@@ -324,10 +411,100 @@ const Policies = () => {
       // Payment
       payment_mode: pd.paymentDetails?.mode || "",
       // Dropdowns
-      client_id: "",
-      insurer_id: "",
+      client_id: defaults?.clientId || "",
+      insurer_id: defaults?.insurerId || "",
     });
   };
+
+  const parseNumber = (value: any): number | null => {
+    if (value === "" || value === null || value === undefined) return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const buildReviewedOcrData = (data: any) => ({
+    policyDetails: {
+      policyNumber: data.policy_number || "",
+      policyType: data.policy_type || "",
+      periodFrom: data.start_date || "",
+      periodTo: data.end_date || "",
+      invoiceNumber: data.invoice_number || "",
+      invoiceDate: data.invoice_date || "",
+      customerId: data.customer_id || "",
+      gstIn: data.gstin || "",
+      coverType: data.cover_type || "",
+      previousPolicy: {
+        insurer: data.prev_insurer || "",
+        policyNumber: data.prev_policy_number || "",
+        validFrom: data.prev_valid_from || "",
+        validTo: data.prev_valid_to || "",
+      },
+      paymentDetails: {
+        mode: data.payment_mode || "",
+      },
+    },
+    vehicleDetails: {
+      manufacturer: data.manufacturer || "",
+      model: data.model || "",
+      variant: data.variant || "",
+      registrationNumber: data.registration_number || "",
+      engineNumber: data.engine_number || "",
+      chassisNumber: data.chassis_number || "",
+      fuelType: data.fuel_type || "",
+      seatingCapacity: parseNumber(data.seating_capacity),
+      cubicCapacity: parseNumber(data.cubic_capacity),
+      bodyType: data.body_type || "",
+      yearOfManufacture: parseNumber(data.year_of_manufacture),
+    },
+    premiumDetails: {
+      ownDamage: {
+        basicOD: parseNumber(data.basic_od),
+        addOnZeroDep: parseNumber(data.addon_zero_dep),
+        addOnConsumables: parseNumber(data.addon_consumables),
+        addOnRSA: parseNumber(data.addon_rsa),
+        addOnEngineProtect: parseNumber(data.addon_engine_protect),
+        addOnNCBProtect: parseNumber(data.addon_ncb_protect),
+        total: parseNumber(data.od_total),
+      },
+      liability: {
+        basicTP: parseNumber(data.basic_tp),
+        paCoverOwnerDriver: parseNumber(data.pa_cover_owner),
+        llForPaidDriver: parseNumber(data.ll_paid_driver),
+        total: parseNumber(data.tp_total),
+      },
+      netPremium: parseNumber(data.net_premium),
+      gstAmount: parseNumber(data.gst_amount),
+      finalPremium: parseNumber(data.final_premium),
+      ncbPercentage: parseNumber(data.ncb_percentage),
+      compulsoryDeductible: parseNumber(data.compulsory_deductible),
+      voluntaryDeductible: parseNumber(data.voluntary_deductible),
+    },
+    clientDetails: {
+      name: data.client_name || "",
+      address: data.client_address || "",
+      email: data.client_email || "",
+      phone: data.client_phone || "",
+      gstIn: data.client_gstin || "",
+      nominee: {
+        name: data.nominee_name || "",
+        relationship: data.nominee_relationship || "",
+      },
+    },
+    insurerDetails: {
+      name: data.insurer_name || "",
+      branchAddress: data.insurer_branch || "",
+      helplineNumber: data.insurer_helpline || "",
+    },
+    agentDetails: {
+      name: data.agent_name || "",
+      code: data.agent_code || "",
+      contact: data.agent_contact || "",
+    },
+    additionalInfo: {
+      hypothecation: data.hypothecation || "",
+      limitationsLiability: data.limitations || "",
+    },
+  });
 
   const handleSaveExtracted = async () => {
     if (!reviewFormData._policyId) return;
@@ -346,6 +523,7 @@ const Policies = () => {
         start_date: reviewFormData.start_date || new Date().toISOString().split("T")[0],
         end_date: reviewFormData.end_date || new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0],
         status: "active" as const,
+        ocr_extracted_data: buildReviewedOcrData(reviewFormData),
       }).eq("id", reviewFormData._policyId);
 
       if (error) throw error;
@@ -365,8 +543,12 @@ const Policies = () => {
     if (!policy.original_document_url) { toast.error("No document uploaded"); return; }
     toast.info("Extracting data from document...");
     try {
+      const documentRef = policy.original_document_url;
+      const isLegacyUrl = /^https?:\/\//i.test(documentRef);
       const { data, error } = await supabase.functions.invoke("extract-policy-data", {
-        body: { policyId: policy.id, documentUrl: policy.original_document_url },
+        body: isLegacyUrl
+          ? { policyId: policy.id, documentUrl: documentRef }
+          : { policyId: policy.id, documentPath: documentRef },
       });
       if (error) throw error;
       toast.success("Data extracted successfully");
@@ -541,7 +723,14 @@ const Policies = () => {
             )}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" className="gap-2" onClick={() => { setUploadFile(null); setExtractionStep(0); setUploadExtractOpen(true); }}>
+              <Button variant="outline" className="gap-2" onClick={() => {
+                setUploadFile(null);
+                setUploadError(null);
+                setExtractedData(null);
+                setExtractionStep(0);
+                setReviewEditMode(true);
+                setUploadExtractOpen(true);
+              }}>
               <Upload className="h-4 w-4" /> Upload & Extract
             </Button>
             <Button className="gap-2" onClick={openAdd}><Plus className="h-4 w-4" /> New Policy</Button>
@@ -598,17 +787,74 @@ const Policies = () => {
       <Dialog open={uploadExtractOpen} onOpenChange={(open) => { if (!open && extractionStep > 0 && extractionStep < 3) return; setUploadExtractOpen(open); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Upload Policy PDF</DialogTitle>
-            <DialogDescription>Upload a policy document to automatically extract data using AI</DialogDescription>
+            <DialogTitle>Upload Policy & Extract Data</DialogTitle>
+            <DialogDescription>Select details, upload a policy document, then review and edit extracted fields</DialogDescription>
           </DialogHeader>
+          <div className="flex items-center gap-3 mb-2">
+            {[
+              { key: "upload", label: "Upload" },
+              { key: "extract", label: "Extract" },
+              { key: "review", label: "Review" },
+            ].map((item, index) => {
+              const activeIndex = extractionStep === 0 ? 0 : extractionStep < 3 ? 1 : 2;
+              return (
+                <div key={item.key} className="flex items-center">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${index <= activeIndex ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                    {index < activeIndex ? <CheckCircle className="h-4 w-4" /> : index + 1}
+                  </div>
+                  <span className="ml-2 text-xs text-muted-foreground">{item.label}</span>
+                  {index < 2 && <ChevronRight className="h-4 w-4 mx-2 text-muted-foreground/50" />}
+                </div>
+              );
+            })}
+          </div>
           {extractionStep === 0 ? (
             <div className="space-y-4 py-4">
+              {uploadError && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 text-destructive px-3 py-2 text-sm flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" />
+                  {uploadError}
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-3">
+                <div className="space-y-2">
+                  <Label>Client *</Label>
+                  <Select value={uploadClientId} onValueChange={setUploadClientId}>
+                    <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
+                    <SelectContent>{clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Insurer (optional)</Label>
+                  <Select value={uploadInsurerId || "none"} onValueChange={(value) => setUploadInsurerId(value === "none" ? "" : value)}>
+                    <SelectTrigger><SelectValue placeholder="Select insurer" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {insurers.map((i) => <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Policy Type</Label>
+                  <Select value={uploadPolicyType} onValueChange={setUploadPolicyType}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="motor">Motor</SelectItem>
+                      <SelectItem value="health">Health</SelectItem>
+                      <SelectItem value="life">Life</SelectItem>
+                      <SelectItem value="property">Property</SelectItem>
+                      <SelectItem value="travel">Travel</SelectItem>
+                      <SelectItem value="general">General</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
               <div className="border-2 border-dashed border-primary/30 rounded-lg p-8 text-center hover:border-primary/50 transition-colors">
                 <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-                <p className="text-sm text-muted-foreground mb-3">Drag & drop or click to select a PDF</p>
+                <p className="text-sm text-muted-foreground mb-3">Drag and drop or click to select a policy file</p>
                 <Input
                   type="file"
-                  accept=".pdf"
+                  accept=".pdf,image/*"
                   className="max-w-xs mx-auto"
                   onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
                 />
@@ -616,8 +862,8 @@ const Policies = () => {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setUploadExtractOpen(false)}>Cancel</Button>
-                <Button onClick={handleUploadAndExtract} disabled={!uploadFile} className="gap-2">
-                  <Upload className="h-4 w-4" /> Upload & Extract
+                <Button onClick={handleUploadAndExtract} disabled={!uploadFile || uploading} className="gap-2">
+                  <Upload className="h-4 w-4" /> {uploading ? "Extracting..." : "Upload & Extract"}
                 </Button>
               </DialogFooter>
             </div>
@@ -630,9 +876,24 @@ const Policies = () => {
       {/* Review Extracted Data Dialog */}
       <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
         <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Review Extracted Data</DialogTitle>
-            <DialogDescription>Verify and correct the AI-extracted data before saving</DialogDescription>
+          <DialogHeader className="flex flex-row items-start justify-between gap-4">
+            <div>
+              <DialogTitle>Review Extracted Data</DialogTitle>
+              <DialogDescription>Verify and correct extracted information before saving policy</DialogDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setReviewEditMode((prev) => !prev)}>
+              {reviewEditMode ? (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Done Editing
+                </>
+              ) : (
+                <>
+                  <Edit3 className="h-4 w-4 mr-2" />
+                  Edit Fields
+                </>
+              )}
+            </Button>
           </DialogHeader>
           <Tabs defaultValue="policy" className="w-full">
             <TabsList className="grid w-full grid-cols-5 text-xs">
@@ -647,66 +908,66 @@ const Policies = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Policy Number</Label>
-                  <Input value={reviewFormData.policy_number || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, policy_number: e.target.value })} />
+                  <Input disabled={!reviewEditMode} value={reviewFormData.policy_number || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, policy_number: e.target.value })} />
                 </div>
                 <div className="space-y-2">
                   <Label>Policy Type</Label>
-                  <Input value={reviewFormData.policy_type || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, policy_type: e.target.value })} />
+                  <Input disabled={!reviewEditMode} value={reviewFormData.policy_type || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, policy_type: e.target.value })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Start Date</Label>
-                  <Input type="date" value={reviewFormData.start_date || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, start_date: e.target.value })} />
+                  <Input disabled={!reviewEditMode} type="date" value={reviewFormData.start_date || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, start_date: e.target.value })} />
                 </div>
                 <div className="space-y-2">
                   <Label>End Date</Label>
-                  <Input type="date" value={reviewFormData.end_date || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, end_date: e.target.value })} />
+                  <Input disabled={!reviewEditMode} type="date" value={reviewFormData.end_date || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, end_date: e.target.value })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Invoice Number</Label>
-                  <Input value={reviewFormData.invoice_number || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, invoice_number: e.target.value })} />
+                  <Input disabled={!reviewEditMode} value={reviewFormData.invoice_number || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, invoice_number: e.target.value })} />
                 </div>
                 <div className="space-y-2">
                   <Label>Customer ID</Label>
-                  <Input value={reviewFormData.customer_id || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, customer_id: e.target.value })} />
+                  <Input disabled={!reviewEditMode} value={reviewFormData.customer_id || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, customer_id: e.target.value })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>GSTIN</Label>
-                  <Input value={reviewFormData.gstin || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, gstin: e.target.value })} />
+                  <Input disabled={!reviewEditMode} value={reviewFormData.gstin || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, gstin: e.target.value })} />
                 </div>
                 <div className="space-y-2">
                   <Label>Cover Type</Label>
-                  <Input value={reviewFormData.cover_type || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, cover_type: e.target.value })} />
+                  <Input disabled={!reviewEditMode} value={reviewFormData.cover_type || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, cover_type: e.target.value })} />
                 </div>
               </div>
             </TabsContent>
 
             <TabsContent value="vehicle" className="space-y-4 mt-3">
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2"><Label>Manufacturer</Label><Input value={reviewFormData.manufacturer || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, manufacturer: e.target.value })} /></div>
-                <div className="space-y-2"><Label>Model</Label><Input value={reviewFormData.model || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, model: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Manufacturer</Label><Input disabled={!reviewEditMode} value={reviewFormData.manufacturer || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, manufacturer: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Model</Label><Input disabled={!reviewEditMode} value={reviewFormData.model || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, model: e.target.value })} /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2"><Label>Variant</Label><Input value={reviewFormData.variant || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, variant: e.target.value })} /></div>
-                <div className="space-y-2"><Label>Registration Number</Label><Input value={reviewFormData.registration_number || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, registration_number: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Variant</Label><Input disabled={!reviewEditMode} value={reviewFormData.variant || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, variant: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Registration Number</Label><Input disabled={!reviewEditMode} value={reviewFormData.registration_number || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, registration_number: e.target.value })} /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2"><Label>Engine Number</Label><Input value={reviewFormData.engine_number || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, engine_number: e.target.value })} /></div>
-                <div className="space-y-2"><Label>Chassis Number</Label><Input value={reviewFormData.chassis_number || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, chassis_number: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Engine Number</Label><Input disabled={!reviewEditMode} value={reviewFormData.engine_number || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, engine_number: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Chassis Number</Label><Input disabled={!reviewEditMode} value={reviewFormData.chassis_number || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, chassis_number: e.target.value })} /></div>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-2"><Label>Fuel Type</Label><Input value={reviewFormData.fuel_type || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, fuel_type: e.target.value })} /></div>
-                <div className="space-y-2"><Label>Seating Capacity</Label><Input type="number" value={reviewFormData.seating_capacity || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, seating_capacity: e.target.value })} /></div>
-                <div className="space-y-2"><Label>Cubic Capacity</Label><Input type="number" value={reviewFormData.cubic_capacity || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, cubic_capacity: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Fuel Type</Label><Input disabled={!reviewEditMode} value={reviewFormData.fuel_type || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, fuel_type: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Seating Capacity</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.seating_capacity || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, seating_capacity: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Cubic Capacity</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.cubic_capacity || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, cubic_capacity: e.target.value })} /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2"><Label>Body Type</Label><Input value={reviewFormData.body_type || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, body_type: e.target.value })} /></div>
-                <div className="space-y-2"><Label>Year of Manufacture</Label><Input type="number" value={reviewFormData.year_of_manufacture || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, year_of_manufacture: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Body Type</Label><Input disabled={!reviewEditMode} value={reviewFormData.body_type || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, body_type: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Year of Manufacture</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.year_of_manufacture || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, year_of_manufacture: e.target.value })} /></div>
               </div>
             </TabsContent>
 
@@ -714,59 +975,67 @@ const Policies = () => {
               <Card>
                 <CardHeader className="py-2 px-3"><CardTitle className="text-sm">Own Damage</CardTitle></CardHeader>
                 <CardContent className="px-3 pb-3 grid grid-cols-3 gap-3">
-                  <div className="space-y-1"><Label className="text-xs">Basic OD</Label><Input type="number" value={reviewFormData.basic_od || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, basic_od: e.target.value })} /></div>
-                  <div className="space-y-1"><Label className="text-xs">Zero Dep</Label><Input type="number" value={reviewFormData.addon_zero_dep || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, addon_zero_dep: e.target.value })} /></div>
-                  <div className="space-y-1"><Label className="text-xs">Consumables</Label><Input type="number" value={reviewFormData.addon_consumables || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, addon_consumables: e.target.value })} /></div>
-                  <div className="space-y-1"><Label className="text-xs">RSA</Label><Input type="number" value={reviewFormData.addon_rsa || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, addon_rsa: e.target.value })} /></div>
-                  <div className="space-y-1"><Label className="text-xs">Engine Protect</Label><Input type="number" value={reviewFormData.addon_engine_protect || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, addon_engine_protect: e.target.value })} /></div>
-                  <div className="space-y-1"><Label className="text-xs">OD Total</Label><Input type="number" value={reviewFormData.od_total || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, od_total: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">Basic OD</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.basic_od || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, basic_od: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">Zero Dep</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.addon_zero_dep || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, addon_zero_dep: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">Consumables</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.addon_consumables || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, addon_consumables: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">RSA</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.addon_rsa || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, addon_rsa: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">Engine Protect</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.addon_engine_protect || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, addon_engine_protect: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">OD Total</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.od_total || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, od_total: e.target.value })} /></div>
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="py-2 px-3"><CardTitle className="text-sm">Liability</CardTitle></CardHeader>
                 <CardContent className="px-3 pb-3 grid grid-cols-3 gap-3">
-                  <div className="space-y-1"><Label className="text-xs">Basic TP</Label><Input type="number" value={reviewFormData.basic_tp || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, basic_tp: e.target.value })} /></div>
-                  <div className="space-y-1"><Label className="text-xs">PA Cover Owner</Label><Input type="number" value={reviewFormData.pa_cover_owner || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, pa_cover_owner: e.target.value })} /></div>
-                  <div className="space-y-1"><Label className="text-xs">LL Paid Driver</Label><Input type="number" value={reviewFormData.ll_paid_driver || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, ll_paid_driver: e.target.value })} /></div>
-                  <div className="space-y-1"><Label className="text-xs">TP Total</Label><Input type="number" value={reviewFormData.tp_total || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, tp_total: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">Basic TP</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.basic_tp || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, basic_tp: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">PA Cover Owner</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.pa_cover_owner || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, pa_cover_owner: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">LL Paid Driver</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.ll_paid_driver || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, ll_paid_driver: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">TP Total</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.tp_total || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, tp_total: e.target.value })} /></div>
                 </CardContent>
               </Card>
               <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1"><Label className="text-xs">Net Premium</Label><Input type="number" value={reviewFormData.net_premium || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, net_premium: e.target.value })} /></div>
-                <div className="space-y-1"><Label className="text-xs">GST</Label><Input type="number" value={reviewFormData.gst_amount || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, gst_amount: e.target.value })} /></div>
-                <div className="space-y-1"><Label className="text-xs font-bold">Final Premium</Label><Input type="number" value={reviewFormData.final_premium || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, final_premium: e.target.value })} className="border-primary" /></div>
+                <div className="space-y-1"><Label className="text-xs">Net Premium</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.net_premium || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, net_premium: e.target.value })} /></div>
+                <div className="space-y-1"><Label className="text-xs">GST</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.gst_amount || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, gst_amount: e.target.value })} /></div>
+                <div className="space-y-1"><Label className="text-xs font-bold">Final Premium</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.final_premium || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, final_premium: e.target.value })} className="border-primary" /></div>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1"><Label className="text-xs">NCB %</Label><Input type="number" value={reviewFormData.ncb_percentage || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, ncb_percentage: e.target.value })} /></div>
-                <div className="space-y-1"><Label className="text-xs">Compulsory Deductible</Label><Input type="number" value={reviewFormData.compulsory_deductible || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, compulsory_deductible: e.target.value })} /></div>
-                <div className="space-y-1"><Label className="text-xs">Voluntary Deductible</Label><Input type="number" value={reviewFormData.voluntary_deductible || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, voluntary_deductible: e.target.value })} /></div>
+                <div className="space-y-1"><Label className="text-xs">NCB %</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.ncb_percentage || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, ncb_percentage: e.target.value })} /></div>
+                <div className="space-y-1"><Label className="text-xs">Compulsory Deductible</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.compulsory_deductible || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, compulsory_deductible: e.target.value })} /></div>
+                <div className="space-y-1"><Label className="text-xs">Voluntary Deductible</Label><Input disabled={!reviewEditMode} type="number" value={reviewFormData.voluntary_deductible || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, voluntary_deductible: e.target.value })} /></div>
               </div>
             </TabsContent>
 
             <TabsContent value="client" className="space-y-4 mt-3">
               <div className="space-y-2">
                 <Label>Select Client *</Label>
-                <Select value={reviewFormData.client_id || ""} onValueChange={(v) => setReviewFormData({ ...reviewFormData, client_id: v })}>
+                <Select value={reviewFormData.client_id || ""} onValueChange={(v) => setReviewFormData({ ...reviewFormData, client_id: v })} disabled={!reviewEditMode}>
                   <SelectTrigger><SelectValue placeholder="Match to existing client" /></SelectTrigger>
                   <SelectContent>{clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>)}</SelectContent>
                 </Select>
                 {reviewFormData.client_name && <p className="text-xs text-muted-foreground">Extracted: {reviewFormData.client_name}</p>}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2"><Label>Client Address</Label><Input value={reviewFormData.client_address || ""} readOnly className="bg-muted/30" /></div>
-                <div className="space-y-2"><Label>Client Phone</Label><Input value={reviewFormData.client_phone || ""} readOnly className="bg-muted/30" /></div>
+                <div className="space-y-2"><Label>Client Name</Label><Input disabled={!reviewEditMode} value={reviewFormData.client_name || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, client_name: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Client Address</Label><Input disabled={!reviewEditMode} value={reviewFormData.client_address || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, client_address: e.target.value })} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2"><Label>Client Phone</Label><Input disabled={!reviewEditMode} value={reviewFormData.client_phone || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, client_phone: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Client Email</Label><Input disabled={!reviewEditMode} value={reviewFormData.client_email || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, client_email: e.target.value })} /></div>
               </div>
               <div className="space-y-2">
                 <Label>Select Insurer</Label>
-                <Select value={reviewFormData.insurer_id || ""} onValueChange={(v) => setReviewFormData({ ...reviewFormData, insurer_id: v })}>
+                <Select value={reviewFormData.insurer_id || ""} onValueChange={(v) => setReviewFormData({ ...reviewFormData, insurer_id: v })} disabled={!reviewEditMode}>
                   <SelectTrigger><SelectValue placeholder="Match to existing insurer" /></SelectTrigger>
                   <SelectContent>{insurers.map((i) => <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>)}</SelectContent>
                 </Select>
                 {reviewFormData.insurer_name && <p className="text-xs text-muted-foreground">Extracted: {reviewFormData.insurer_name}</p>}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2"><Label>Nominee Name</Label><Input value={reviewFormData.nominee_name || ""} readOnly className="bg-muted/30" /></div>
-                <div className="space-y-2"><Label>Nominee Relationship</Label><Input value={reviewFormData.nominee_relationship || ""} readOnly className="bg-muted/30" /></div>
+                <div className="space-y-2"><Label>Insurer Name</Label><Input disabled={!reviewEditMode} value={reviewFormData.insurer_name || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, insurer_name: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Insurer Branch</Label><Input disabled={!reviewEditMode} value={reviewFormData.insurer_branch || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, insurer_branch: e.target.value })} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2"><Label>Nominee Name</Label><Input disabled={!reviewEditMode} value={reviewFormData.nominee_name || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, nominee_name: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Nominee Relationship</Label><Input disabled={!reviewEditMode} value={reviewFormData.nominee_relationship || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, nominee_relationship: e.target.value })} /></div>
               </div>
             </TabsContent>
 
@@ -774,19 +1043,23 @@ const Policies = () => {
               <Card>
                 <CardHeader className="py-2 px-3"><CardTitle className="text-sm">Previous Policy</CardTitle></CardHeader>
                 <CardContent className="px-3 pb-3 grid grid-cols-2 gap-3">
-                  <div className="space-y-1"><Label className="text-xs">Insurer</Label><Input value={reviewFormData.prev_insurer || ""} readOnly className="bg-muted/30" /></div>
-                  <div className="space-y-1"><Label className="text-xs">Policy No</Label><Input value={reviewFormData.prev_policy_number || ""} readOnly className="bg-muted/30" /></div>
-                  <div className="space-y-1"><Label className="text-xs">Valid From</Label><Input value={reviewFormData.prev_valid_from || ""} readOnly className="bg-muted/30" /></div>
-                  <div className="space-y-1"><Label className="text-xs">Valid To</Label><Input value={reviewFormData.prev_valid_to || ""} readOnly className="bg-muted/30" /></div>
+                  <div className="space-y-1"><Label className="text-xs">Insurer</Label><Input disabled={!reviewEditMode} value={reviewFormData.prev_insurer || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, prev_insurer: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">Policy No</Label><Input disabled={!reviewEditMode} value={reviewFormData.prev_policy_number || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, prev_policy_number: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">Valid From</Label><Input disabled={!reviewEditMode} value={reviewFormData.prev_valid_from || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, prev_valid_from: e.target.value })} /></div>
+                  <div className="space-y-1"><Label className="text-xs">Valid To</Label><Input disabled={!reviewEditMode} value={reviewFormData.prev_valid_to || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, prev_valid_to: e.target.value })} /></div>
                 </CardContent>
               </Card>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2"><Label>Agent Name</Label><Input value={reviewFormData.agent_name || ""} readOnly className="bg-muted/30" /></div>
-                <div className="space-y-2"><Label>Agent Code</Label><Input value={reviewFormData.agent_code || ""} readOnly className="bg-muted/30" /></div>
+                <div className="space-y-2"><Label>Agent Name</Label><Input disabled={!reviewEditMode} value={reviewFormData.agent_name || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, agent_name: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Agent Code</Label><Input disabled={!reviewEditMode} value={reviewFormData.agent_code || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, agent_code: e.target.value })} /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2"><Label>Payment Mode</Label><Input value={reviewFormData.payment_mode || ""} readOnly className="bg-muted/30" /></div>
-                <div className="space-y-2"><Label>Hypothecation</Label><Input value={reviewFormData.hypothecation || ""} readOnly className="bg-muted/30" /></div>
+                <div className="space-y-2"><Label>Agent Contact</Label><Input disabled={!reviewEditMode} value={reviewFormData.agent_contact || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, agent_contact: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Payment Mode</Label><Input disabled={!reviewEditMode} value={reviewFormData.payment_mode || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, payment_mode: e.target.value })} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2"><Label>Hypothecation</Label><Input disabled={!reviewEditMode} value={reviewFormData.hypothecation || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, hypothecation: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Limitations</Label><Input disabled={!reviewEditMode} value={reviewFormData.limitations || ""} onChange={(e) => setReviewFormData({ ...reviewFormData, limitations: e.target.value })} /></div>
               </div>
             </TabsContent>
           </Tabs>
