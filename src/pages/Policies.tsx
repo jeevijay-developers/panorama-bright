@@ -100,7 +100,7 @@ const Policies = () => {
   const [sendingQuotation, setSendingQuotation] = useState(false);
 
   // Intermediary list for admin to select who issued the policy
-  const [intermediaries, setIntermediaries] = useState<{ id: string; full_name: string; intermediary_code: string | null }[]>([]);
+  const [intermediaries, setIntermediaries] = useState<{ id: string; full_name: string; intermediary_code?: string }[]>([]);
 
   // Post-save success modal state
   const [successModalOpen, setSuccessModalOpen] = useState(false);
@@ -236,7 +236,7 @@ const Policies = () => {
     if (polRes.data) setPolicies(polRes.data as PolicyWithRelations[]);
     if (cliRes.data) setClients(cliRes.data);
     if (insRes.data) setInsurers(insRes.data);
-    if (intRes.data) setIntermediaries(intRes.data as { id: string; full_name: string; intermediary_code: string | null }[]);
+    if (intRes.data) setIntermediaries(intRes.data as { id: string; full_name: string; intermediary_code?: string }[]);
     setLoading(false);
   };
 

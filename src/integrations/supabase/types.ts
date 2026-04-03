@@ -157,18 +157,21 @@ export type Database = {
       }
       intermediary_insurers: {
         Row: {
+          commission_rate: number
           created_at: string
           id: string
           insurer_id: string
           intermediary_id: string
         }
         Insert: {
+          commission_rate?: number
           created_at?: string
           id?: string
           insurer_id: string
           intermediary_id: string
         }
         Update: {
+          commission_rate?: number
           created_at?: string
           id?: string
           insurer_id?: string
@@ -369,6 +372,7 @@ export type Database = {
           email: string
           full_name: string
           id: string
+          intermediary_code: string | null
           is_active: boolean
           parent_intermediary_id: string | null
           phone: string | null
@@ -380,6 +384,7 @@ export type Database = {
           email?: string
           full_name?: string
           id?: string
+          intermediary_code?: string | null
           is_active?: boolean
           parent_intermediary_id?: string | null
           phone?: string | null
@@ -391,6 +396,7 @@ export type Database = {
           email?: string
           full_name?: string
           id?: string
+          intermediary_code?: string | null
           is_active?: boolean
           parent_intermediary_id?: string | null
           phone?: string | null
