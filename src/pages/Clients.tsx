@@ -244,24 +244,49 @@ const Clients = () => {
 
       {/* View Dialog */}
       <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Client Details</DialogTitle>
             <DialogDescription>Viewing client information</DialogDescription>
           </DialogHeader>
           {viewingClient && (
-            <div className="space-y-3 py-2">
-              <div><Label className="text-muted-foreground text-xs">Name</Label><p className="font-medium">{viewingClient.full_name}</p></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-muted-foreground text-xs">Email</Label><p>{viewingClient.email || "—"}</p></div>
-                <div><Label className="text-muted-foreground text-xs">Phone</Label><p>{viewingClient.phone || "—"}</p></div>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1">
+                <Label className="text-muted-foreground text-xs">Name</Label>
+                <p className="font-medium break-words">{viewingClient.full_name}</p>
               </div>
-              <div><Label className="text-muted-foreground text-xs">Address</Label><p>{viewingClient.address || "—"}</p></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-muted-foreground text-xs">Date of Birth</Label><p>{viewingClient.date_of_birth || "—"}</p></div>
-                <div><Label className="text-muted-foreground text-xs">Status</Label><Badge variant="outline" className={viewingClient.is_active ? "bg-success/10 text-success border-success/30" : "bg-muted text-muted-foreground"}>{viewingClient.is_active ? "Active" : "Inactive"}</Badge></div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1 min-w-0">
+                  <Label className="text-muted-foreground text-xs">Email</Label>
+                  <p className="break-all">{viewingClient.email || "—"}</p>
+                </div>
+                <div className="space-y-1 min-w-0">
+                  <Label className="text-muted-foreground text-xs">Phone</Label>
+                  <p className="break-words">{viewingClient.phone || "—"}</p>
+                </div>
               </div>
-              <div><Label className="text-muted-foreground text-xs">Created</Label><p className="text-sm">{new Date(viewingClient.created_at).toLocaleDateString()}</p></div>
+
+              <div className="space-y-1 min-w-0">
+                <Label className="text-muted-foreground text-xs">Address</Label>
+                <p className="break-words">{viewingClient.address || "—"}</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs">Date of Birth</Label>
+                  <p>{viewingClient.date_of_birth || "—"}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs mr-2">Status</Label>
+                  <Badge variant="outline" className={viewingClient.is_active ? "bg-success/10 text-success border-success/30" : "bg-muted text-muted-foreground"}>{viewingClient.is_active ? "Active" : "Inactive"}</Badge>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-muted-foreground text-xs">Created</Label>
+                <p className="text-sm">{new Date(viewingClient.created_at).toLocaleDateString()}</p>
+              </div>
             </div>
           )}
         </DialogContent>

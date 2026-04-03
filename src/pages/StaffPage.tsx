@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Eye } from "lucide-react";
+import { Plus, Eye, Trash2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -17,9 +17,21 @@ interface UserWithRole {
   full_name: string;
   email: string;
   phone: string | null;
+  intermediary_code: string | null;
   is_active: boolean;
   created_at: string;
   role?: string;
+}
+
+interface Insurer {
+  id: string;
+  name: string;
+}
+
+interface InsurerAssociation {
+  insurer_id: string;
+  insurer_name: string;
+  commission_rate: number;
 }
 
 const roleColor: Record<string, string> = {
@@ -40,11 +52,17 @@ const StaffPage = () => {
   const [addOpen, setAddOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   const [viewingUser, setViewingUser] = useState<UserWithRole | null>(null);
+  const [viewingAssociations, setViewingAssociations] = useState<InsurerAssociation[]>([]);
   const [saving, setSaving] = useState(false);
+  const [insurers, setInsurers] = useState<Insurer[]>([]);
 
   const [formData, setFormData] = useState({
     full_name: "", email: "", password: "", role: "intermediary",
+    phone: "", intermediary_code: "",
   });
+
+  // Insurer associations for the form (multiple insurers with commission rates)
+  const [formAssociations, setFormAssociations] = useState<{ insurer_id: string; commission_rate: string }[]>([]);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -55,7 +73,7 @@ const StaffPage = () => {
     const roleMap = new Map<string, string>();
     roles?.forEach((r) => roleMap.set(r.user_id, r.role));
 
-    const enriched: UserWithRole[] = (profiles || []).map((p) => ({
+    const enriched: UserWithRole[] = (profiles || []).map((p: any) => ({
       ...p,
       role: roleMap.get(p.user_id) || "unknown",
     }));
@@ -63,16 +81,50 @@ const StaffPage = () => {
     setLoading(false);
   };
 
-  useEffect(() => { fetchUsers(); }, []);
+  const fetchInsurers = async () => {
+    const { data } = await supabase.from("insurers").select("id, name").eq("is_active", true).order("name");
+    if (data) setInsurers(data);
+  };
+
+  useEffect(() => { fetchUsers(); fetchInsurers(); }, []);
+
+  const addAssociationRow = () => {
+    setFormAssociations([...formAssociations, { insurer_id: "", commission_rate: "" }]);
+  };
+
+  const removeAssociationRow = (index: number) => {
+    setFormAssociations(formAssociations.filter((_, i) => i !== index));
+  };
+
+  const updateAssociation = (index: number, field: string, value: string) => {
+    const updated = [...formAssociations];
+    updated[index] = { ...updated[index], [field]: value };
+    setFormAssociations(updated);
+  };
 
   const handleCreateUser = async () => {
     if (!formData.full_name.trim() || !formData.email.trim() || !formData.password.trim()) {
-      toast.error("All fields are required");
+      toast.error("Name, email, and password are required");
       return;
     }
     if (formData.password.length < 6) {
       toast.error("Password must be at least 6 characters");
       return;
+    }
+    if (formData.role === "intermediary") {
+      if (!formData.intermediary_code.trim()) {
+        toast.error("Intermediary code is required");
+        return;
+      }
+      if (!formData.phone.trim()) {
+        toast.error("Contact number is required for intermediaries");
+        return;
+      }
+      const validAssociations = formAssociations.filter(a => a.insurer_id && a.commission_rate);
+      if (validAssociations.length === 0) {
+        toast.error("At least one insurer association with commission rate is required");
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -89,17 +141,74 @@ const StaffPage = () => {
       });
 
       if (res.error) throw new Error(res.error.message || "Failed to create user");
-      
+
       const responseData = res.data;
       if (responseData?.error) throw new Error(responseData.error);
 
+      const newUserId = responseData?.user_id;
+
+      // Update profile with intermediary-specific fields
+      if (formData.role === "intermediary" && newUserId) {
+        // Get the profile id for the new user
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("user_id", newUserId)
+          .single();
+
+        if (profileData) {
+          // Update profile with intermediary_code and phone
+          await supabase.from("profiles").update({
+            intermediary_code: formData.intermediary_code.trim(),
+            phone: formData.phone.trim(),
+          }).eq("id", profileData.id);
+
+          // Create intermediary_insurers records
+          const validAssociations = formAssociations.filter(a => a.insurer_id && a.commission_rate);
+          if (validAssociations.length > 0) {
+            const records = validAssociations.map(a => ({
+              intermediary_id: profileData.id,
+              insurer_id: a.insurer_id,
+              commission_rate: Number(a.commission_rate) || 0,
+            }));
+            const { error: assocErr } = await supabase.from("intermediary_insurers").insert(records);
+            if (assocErr) {
+              console.error("Failed to create insurer associations:", assocErr);
+              toast.warning("User created but some insurer associations failed");
+            }
+          }
+        }
+      }
+
       toast.success(`User "${formData.full_name}" created successfully`);
       setAddOpen(false);
-      setFormData({ full_name: "", email: "", password: "", role: "intermediary" });
+      setFormData({ full_name: "", email: "", password: "", role: "intermediary", phone: "", intermediary_code: "" });
+      setFormAssociations([]);
       fetchUsers();
     } catch (e: any) {
       toast.error(e.message || "Failed to create user");
     } finally { setSaving(false); }
+  };
+
+  const handleViewUser = async (u: UserWithRole) => {
+    setViewingUser(u);
+    setViewingAssociations([]);
+    setViewOpen(true);
+
+    // Fetch insurer associations for this user
+    if (u.role === "intermediary") {
+      const { data } = await supabase
+        .from("intermediary_insurers")
+        .select("insurer_id, commission_rate, insurers(name)")
+        .eq("intermediary_id", u.id);
+      if (data) {
+        setViewingAssociations(data.map((d: any) => ({
+          insurer_id: d.insurer_id,
+          insurer_name: d.insurers?.name || "Unknown",
+          commission_rate: d.commission_rate,
+        })));
+      }
+    }
   };
 
   useSetPageTitle("Staff Management");
@@ -111,7 +220,11 @@ const StaffPage = () => {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold">User Management</CardTitle>
-              <Button className="gap-2" size="sm" onClick={() => setAddOpen(true)}>
+              <Button className="gap-2" size="sm" onClick={() => {
+                setFormData({ full_name: "", email: "", password: "", role: "intermediary", phone: "", intermediary_code: "" });
+                setFormAssociations([]);
+                setAddOpen(true);
+              }}>
                 <Plus className="h-4 w-4" /> Add User
               </Button>
             </div>
@@ -121,6 +234,7 @@ const StaffPage = () => {
               <TableHeader>
                 <TableRow className="border-border/50 hover:bg-transparent">
                   <TableHead className="text-muted-foreground text-xs">Name</TableHead>
+                  <TableHead className="text-muted-foreground text-xs">Code</TableHead>
                   <TableHead className="text-muted-foreground text-xs">Email</TableHead>
                   <TableHead className="text-muted-foreground text-xs">Phone</TableHead>
                   <TableHead className="text-muted-foreground text-xs">Role</TableHead>
@@ -130,13 +244,14 @@ const StaffPage = () => {
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
                 ) : users.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No users found</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No users found</TableCell></TableRow>
                 ) : (
                   users.map((u) => (
                     <TableRow key={u.id} className="border-border/30 hover:bg-muted/30">
                       <TableCell className="font-medium">{u.full_name || "—"}</TableCell>
+                      <TableCell className="font-mono text-sm text-muted-foreground">{u.intermediary_code || "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{u.email}</TableCell>
                       <TableCell className="text-muted-foreground">{u.phone || "—"}</TableCell>
                       <TableCell>
@@ -148,7 +263,7 @@ const StaffPage = () => {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setViewingUser(u); setViewOpen(true); }}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleViewUser(u)}>
                           <Eye className="h-3.5 w-3.5" />
                         </Button>
                       </TableCell>
@@ -163,7 +278,7 @@ const StaffPage = () => {
 
       {/* Add User Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New User</DialogTitle>
             <DialogDescription>Create a new account for an intermediary or staff member</DialogDescription>
@@ -192,6 +307,74 @@ const StaffPage = () => {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Intermediary-specific fields */}
+            {formData.role === "intermediary" && (
+              <>
+                <div className="border-t pt-4 space-y-4">
+                  <p className="text-sm font-semibold text-muted-foreground">Intermediary Details</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Intermediary Code *</Label>
+                      <Input placeholder="e.g., ILG49754" value={formData.intermediary_code} onChange={(e) => setFormData({ ...formData, intermediary_code: e.target.value })} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Contact Number *</Label>
+                      <Input placeholder="e.g., 9425011003" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
+                    </div>
+                  </div>
+
+                  {/* Insurer Associations */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Insurer Associations *</Label>
+                      <Button type="button" variant="outline" size="sm" className="gap-1 h-7 text-xs" onClick={addAssociationRow}>
+                        <Plus className="h-3 w-3" /> Add Insurer
+                      </Button>
+                    </div>
+                    {formAssociations.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Click "Add Insurer" to associate this intermediary with insurers and set commission rates.</p>
+                    )}
+                    {formAssociations.map((assoc, idx) => (
+                      <div key={idx} className="flex items-end gap-2">
+                        <div className="flex-1 space-y-1">
+                          <Label className="text-xs">Insurer</Label>
+                          <Select value={assoc.insurer_id} onValueChange={(v) => updateAssociation(idx, "insurer_id", v)}>
+                            <SelectTrigger className="h-9"><SelectValue placeholder="Select insurer" /></SelectTrigger>
+                            <SelectContent>
+                              {insurers.map((ins) => (
+                                <SelectItem key={ins.id} value={ins.id}>{ins.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="w-28 space-y-1">
+                          <Label className="text-xs">Commission %</Label>
+                          <Input
+                            type="number"
+                            placeholder="e.g., 4"
+                            className="h-9"
+                            value={assoc.commission_rate}
+                            onChange={(e) => updateAssociation(idx, "commission_rate", e.target.value)}
+                          />
+                        </div>
+                        <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-destructive" onClick={() => removeAssociationRow(idx)}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Phone for non-intermediary roles */}
+            {formData.role !== "intermediary" && (
+              <div className="space-y-2">
+                <Label>Phone</Label>
+                <Input placeholder="Contact number" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
@@ -213,6 +396,12 @@ const StaffPage = () => {
                 <Label className="text-muted-foreground text-xs">Name</Label>
                 <p className="font-medium text-base">{viewingUser.full_name || "—"}</p>
               </div>
+              {viewingUser.intermediary_code && (
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs">Intermediary Code</Label>
+                  <p className="font-mono text-sm font-medium">{viewingUser.intermediary_code}</p>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-1">
                   <Label className="text-muted-foreground text-xs">Email</Label>
@@ -233,6 +422,24 @@ const StaffPage = () => {
                   <div><Badge variant="outline" className={viewingUser.is_active ? "bg-success/10 text-success border-success/30" : "bg-muted text-muted-foreground"}>{viewingUser.is_active ? "Active" : "Inactive"}</Badge></div>
                 </div>
               </div>
+
+              {/* Insurer Associations */}
+              {viewingUser.role === "intermediary" && viewingAssociations.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground text-xs">Insurer Associations</Label>
+                  <div className="border rounded-md divide-y">
+                    {viewingAssociations.map((a, idx) => (
+                      <div key={idx} className="flex items-center justify-between px-3 py-2">
+                        <span className="text-sm font-medium">{a.insurer_name}</span>
+                        <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
+                          {a.commission_rate}% commission
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-1">
                 <Label className="text-muted-foreground text-xs">Created</Label>
                 <p className="text-sm">{new Date(viewingUser.created_at).toLocaleDateString()}</p>

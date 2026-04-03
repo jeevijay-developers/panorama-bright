@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -12,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Plus, Search, Pencil, Trash2, Eye, Upload, FileDown, ChevronDown, Edit3, CheckCircle, AlertCircle, ChevronRight } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Eye, Upload, FileDown, ChevronDown, Edit3, CheckCircle, AlertCircle, ChevronRight, Send, Loader2, PartyPopper } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -70,7 +71,7 @@ const CATEGORY_ORDER: Record<string, number> = {
 
 const Policies = () => {
   const navigate = useNavigate();
-  const { profileId, role } = useAuth();
+  const { profileId, role, signOut } = useAuth();
   const isAdmin = role === "super_admin";
   const [policies, setPolicies] = useState<PolicyWithRelations[]>([]);
   const [clients, setClients] = useState<{ id: string; full_name: string }[]>([]);
@@ -90,6 +91,21 @@ const Policies = () => {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // Send Quotation modal state
+  const [sendQuotationOpen, setSendQuotationOpen] = useState(false);
+  const [sendingPolicy, setSendingPolicy] = useState<PolicyWithRelations | null>(null);
+  const [sendPaymentLink, setSendPaymentLink] = useState("");
+  const [sendWhatsApp, setSendWhatsApp] = useState(true);
+  const [sendEmail, setSendEmail] = useState(false);
+  const [sendingQuotation, setSendingQuotation] = useState(false);
+
+  // Intermediary list for admin to select who issued the policy
+  const [intermediaries, setIntermediaries] = useState<{ id: string; full_name: string; intermediary_code: string | null }[]>([]);
+
+  // Post-save success modal state
+  const [successModalOpen, setSuccessModalOpen] = useState(false);
+  const [successPolicy, setSuccessPolicy] = useState<PolicyWithRelations | null>(null);
+
   // Upload & Extract state
   const [extractionStep, setExtractionStep] = useState(0);
   const [extractedData, setExtractedData] = useState<any>(null);
@@ -98,6 +114,7 @@ const Policies = () => {
   const [uploadClientId, setUploadClientId] = useState("");
   const [uploadInsurerId, setUploadInsurerId] = useState("");
   const [uploadPolicyType, setUploadPolicyType] = useState("motor");
+  const [uploadIntermediaryId, setUploadIntermediaryId] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [reviewEditMode, setReviewEditMode] = useState(true);
 
@@ -111,6 +128,59 @@ const Policies = () => {
       result;
 
     return candidate && typeof candidate === "object" ? candidate : {};
+  };
+
+  const getFunctionErrorMessage = async (error: any, fallback: string) => {
+    if (!error) return fallback;
+
+    const responseLike = error?.context;
+    if (responseLike && typeof responseLike.clone === "function") {
+      try {
+        const rawText = await responseLike.clone().text();
+        if (rawText) {
+          try {
+            const parsed = JSON.parse(rawText);
+            if (typeof parsed?.error === "string") return parsed.error;
+            if (typeof parsed?.message === "string") return parsed.message;
+          } catch {
+            return rawText;
+          }
+        }
+      } catch {
+        // Ignore context parsing failures and fallback to standard message.
+      }
+    }
+
+    return error?.message || fallback;
+  };
+
+  const toFriendlyAuthMessage = (message: string): string => {
+    if (!message) return "Something went wrong";
+    if (/missing authorization header|invalid jwt|jwt expired|unauthorized/i.test(message)) {
+      return "Your session has expired. Please sign in again and retry.";
+    }
+    return message;
+  };
+
+  const invokeExtractPolicyData = async (payload: { policyId: string; documentPath?: string; documentUrl?: string }) => {
+    // The Supabase SDK (with autoRefreshToken: true) automatically attaches a
+    // fresh JWT to every functions.invoke call. We do NOT manually refresh or
+    // set Authorization headers — doing so causes token revocation conflicts
+    // that result in 401 errors and phantom "session expired" sign-outs.
+    const result = await supabase.functions.invoke("extract-policy-data", {
+      body: payload,
+    });
+
+    // If the platform returned a 401, surface it as an auth error so the
+    // caller's catch block can sign the user out automatically.
+    if (result.error) {
+      const ctx = (result.error as { context?: Response })?.context;
+      if (ctx?.status === 401) {
+        throw new Error("jwt expired");
+      }
+    }
+
+    return result;
   };
 
   const toDateInputValue = (value: unknown): string => {
@@ -157,14 +227,16 @@ const Policies = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    const [polRes, cliRes, insRes] = await Promise.all([
+    const [polRes, cliRes, insRes, intRes] = await Promise.all([
       supabase.from("policies").select("*, clients(full_name), insurers(name)").order("created_at", { ascending: false }),
       supabase.from("clients").select("id, full_name").order("full_name"),
       supabase.from("insurers").select("id, name").eq("is_active", true).order("name"),
+      supabase.from("profiles").select("id, full_name, intermediary_code").order("full_name"),
     ]);
     if (polRes.data) setPolicies(polRes.data as PolicyWithRelations[]);
     if (cliRes.data) setClients(cliRes.data);
     if (insRes.data) setInsurers(insRes.data);
+    if (intRes.data) setIntermediaries(intRes.data as { id: string; full_name: string; intermediary_code: string | null }[]);
     setLoading(false);
   };
 
@@ -281,18 +353,17 @@ const Policies = () => {
         if (error) throw error;
         toast.success("Policy updated successfully");
       } else {
-        const { data, error } = await supabase.from("policies").insert({ ...payload, intermediary_id: profileId }).select().single();
+        const { data, error } = await supabase.from("policies").insert({ ...payload, intermediary_id: profileId }).select("*, clients(full_name), insurers(name)").single();
         if (error) throw error;
         if (docFile && data) {
           const docUrl = await uploadToImageKit(docFile, data.id);
           if (docUrl) await supabase.from("policies").update({ original_document_url: docUrl }).eq("id", data.id);
         }
-        toast.success("Policy created successfully", {
-          action: {
-            label: "Send Quotation",
-            onClick: () => navigate(`/quotations?policy_id=${data.id}&client_id=${data.client_id}&amount=${data.premium_amount}`),
-          },
-        });
+        // Auto-create commission record
+        await autoCreateCommission(data.id, profileId, data.insurer_id, data.premium_amount);
+        // Show success modal
+        setSuccessPolicy(data as PolicyWithRelations);
+        setSuccessModalOpen(true);
       }
       setFormOpen(false);
       fetchData();
@@ -316,6 +387,10 @@ const Policies = () => {
       setUploadError("Please select a client before uploading");
       return;
     }
+    if (isAdmin && !uploadIntermediaryId) {
+      setUploadError("Please select the intermediary who issued this policy");
+      return;
+    }
 
     let createdPolicyId: string | null = null;
 
@@ -325,6 +400,7 @@ const Policies = () => {
     setUploading(true);
 
     try {
+
       // Step 0: Upload to Supabase Storage so OCR can download by path
       const documentPath = await uploadToPolicyStorage(uploadFile);
       toast.info("Document uploaded, starting AI analysis...");
@@ -333,12 +409,13 @@ const Policies = () => {
       setExtractionStep(1);
 
       // Create a placeholder policy to store extracted data
+      const selectedIntermediaryId = (isAdmin && uploadIntermediaryId) ? uploadIntermediaryId : profileId;
       const { data: newPolicy, error: createErr } = await supabase.from("policies").insert({
         policy_number: "EXTRACTING-" + Date.now(),
         client_id: uploadClientId,
         insurer_id: uploadInsurerId || null,
         policy_type: uploadPolicyType || "motor",
-        intermediary_id: profileId,
+        intermediary_id: selectedIntermediaryId,
         start_date: new Date().toISOString().split("T")[0],
         end_date: new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0],
         original_document_url: documentPath,
@@ -352,13 +429,20 @@ const Policies = () => {
       setExtractionStep(2);
       toast.info("AI is extracting policy fields...");
 
-      const { data: extractResult, error: extractErr } = await supabase.functions.invoke("extract-policy-data", {
-        body: { policyId: newPolicy.id, documentPath },
+      const { data: extractResult, error: extractErr } = await invokeExtractPolicyData({
+        policyId: newPolicy.id,
+        documentPath,
       });
 
-      if (extractErr) throw new Error("Extraction failed");
+      if (extractErr) {
+        const detail = await getFunctionErrorMessage(extractErr, "Extraction failed");
+        throw new Error(detail);
+      }
 
       const normalizedExtractedData = normalizeExtractedData(extractResult);
+      if (!Object.keys(normalizedExtractedData).length) {
+        throw new Error("AI OCR returned no fields. Please upload a clearer document and try again.");
+      }
 
       // Step 3: Done
       setExtractionStep(3);
@@ -378,11 +462,22 @@ const Policies = () => {
 
     } catch (e: any) {
       if (createdPolicyId) {
-        await supabase.from("policies").delete().eq("id", createdPolicyId);
+        try { await supabase.from("policies").delete().eq("id", createdPolicyId); } catch { /* best-effort cleanup */ }
       }
-      toast.error(e.message || "Extraction failed");
+      const rawMessage = e?.message || "Extraction failed";
+      const isAuthError = /missing authorization header|invalid jwt|jwt expired|unauthorized|session has expired/i.test(rawMessage);
+      const message = toFriendlyAuthMessage(rawMessage);
+
+      if (isAuthError) {
+        setUploadExtractOpen(false);
+        toast.error("Your session has expired. Signing you out...", { duration: 3000 });
+        setTimeout(() => signOut(), 1500);
+        return;
+      }
+
+      toast.error(message);
+      setUploadError(message);
       setExtractionStep(0);
-      setUploadExtractOpen(false);
     } finally {
       setUploading(false);
     }
@@ -400,8 +495,9 @@ const Policies = () => {
     const pr = data?.premiumDetails || {};
     const cd = data?.clientDetails || {};
     const id = data?.insurerDetails || {};
+    const bd = data?.branchDetails || {};
     const ad = data?.agentDetails || {};
-    const ai = data?.additionalInfo || {};
+    const an = data?.additionalNotes || {};
 
     setReviewFormData({
       _policyId: policyId,
@@ -426,26 +522,26 @@ const Policies = () => {
       seating_capacity: vd.seatingCapacity || "",
       cubic_capacity: vd.cubicCapacity || "",
       body_type: vd.bodyType || "",
-      year_of_manufacture: vd.yearOfManufacture || "",
-      // Premium
+      odometer_reading: vd.odometerReading || "",
+      // Premium — uses MongoDB schema field names (gst, ncb, others)
       basic_od: pr.ownDamage?.basicOD || "",
       addon_zero_dep: pr.ownDamage?.addOnZeroDep || "",
       addon_consumables: pr.ownDamage?.addOnConsumables || "",
-      addon_rsa: pr.ownDamage?.addOnRSA || "",
-      addon_engine_protect: pr.ownDamage?.addOnEngineProtect || "",
-      addon_ncb_protect: pr.ownDamage?.addOnNCBProtect || "",
+      addon_others: pr.ownDamage?.others || "",
       od_total: pr.ownDamage?.total || "",
       basic_tp: pr.liability?.basicTP || "",
       pa_cover_owner: pr.liability?.paCoverOwnerDriver || "",
       ll_paid_driver: pr.liability?.llForPaidDriver || "",
+      ll_employees: pr.liability?.llEmployees || "",
+      other_liability: pr.liability?.otherLiability || "",
       tp_total: pr.liability?.total || "",
       net_premium: pr.netPremium || "",
-      gst_amount: pr.gstAmount || "",
+      gst_amount: pr.gst || "",
       final_premium: pr.finalPremium || "",
       compulsory_deductible: pr.compulsoryDeductible || "",
       voluntary_deductible: pr.voluntaryDeductible || "",
-      ncb_percentage: pr.ncbPercentage || "",
-      // Client & Insurer
+      ncb_percentage: pr.ncb || "",
+      // Client
       client_name: cd.name || "",
       client_address: cd.address || "",
       client_email: cd.email || "",
@@ -453,16 +549,17 @@ const Policies = () => {
       client_gstin: cd.gstIn || "",
       nominee_name: cd.nominee?.name || "",
       nominee_relationship: cd.nominee?.relationship || "",
+      // Insurer & Branch (separated in new schema)
       insurer_name: id.name || "",
-      insurer_branch: id.branchAddress || "",
-      insurer_helpline: id.helplineNumber || "",
+      insurer_branch: bd.address || "",
+      insurer_helpline: bd.helpline || "",
       // Agent
       agent_name: ad.name || "",
       agent_code: ad.code || "",
       agent_contact: ad.contact || "",
-      // Additional
-      hypothecation: ai.hypothecation || "",
-      limitations: ai.limitationsLiability || "",
+      // Additional Notes
+      limitations: an.limitationsLiability || "",
+      qr_code_link: data?.qrCodeLink || "",
       // Previous policy
       prev_insurer: pd.previousPolicy?.insurer || "",
       prev_policy_number: pd.previousPolicy?.policyNumber || "",
@@ -480,6 +577,33 @@ const Policies = () => {
     if (value === "" || value === null || value === undefined) return null;
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
+  };
+
+  const autoCreateCommission = async (policyId: string, intermediaryId: string, insurerId: string | null, premiumAmount: number) => {
+    if (!insurerId || premiumAmount <= 0) return;
+    try {
+      // Look up the intermediary's commission rate for this insurer
+      const { data: assoc } = await supabase
+        .from("intermediary_insurers")
+        .select("commission_rate")
+        .eq("intermediary_id", intermediaryId)
+        .eq("insurer_id", insurerId)
+        .single();
+      if (!assoc || !assoc.commission_rate) return;
+      const rate = Number(assoc.commission_rate);
+      const amount = (premiumAmount * rate) / 100;
+      await supabase.from("commissions").insert({
+        intermediary_id: intermediaryId,
+        policy_id: policyId,
+        insurer_id: insurerId,
+        premium_amount: premiumAmount,
+        commission_rate: rate,
+        commission_amount: amount,
+        status: "pending" as const,
+      });
+    } catch {
+      // Non-critical — commission can be added manually later
+    }
   };
 
   const buildReviewedOcrData = (data: any) => ({
@@ -573,26 +697,32 @@ const Policies = () => {
     }
     setSaving(true);
     try {
-      const { error } = await supabase.from("policies").update({
+      const premiumAmount = Number(reviewFormData.final_premium) || Number(reviewFormData.net_premium) || 0;
+      const insurerId = reviewFormData.insurer_id || null;
+
+      const { data: savedPolicy, error } = await supabase.from("policies").update({
         policy_number: reviewFormData.policy_number || "N/A",
         client_id: reviewFormData.client_id,
-        insurer_id: reviewFormData.insurer_id || null,
+        insurer_id: insurerId,
         policy_type: reviewFormData.policy_type || "motor",
-        premium_amount: Number(reviewFormData.final_premium) || Number(reviewFormData.net_premium) || 0,
+        premium_amount: premiumAmount,
         coverage_amount: null,
         start_date: reviewFormData.start_date || new Date().toISOString().split("T")[0],
         end_date: reviewFormData.end_date || new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0],
         status: "active" as const,
         ocr_extracted_data: buildReviewedOcrData(reviewFormData),
-      }).eq("id", reviewFormData._policyId);
+      }).eq("id", reviewFormData._policyId).select("*, clients(full_name), insurers(name)").single();
 
       if (error) throw error;
-      toast.success("Policy saved from extracted data", {
-        action: {
-          label: "Send Quotation",
-          onClick: () => navigate(`/quotations?policy_id=${reviewFormData._policyId}&client_id=${reviewFormData.client_id}&amount=${Number(reviewFormData.final_premium) || Number(reviewFormData.net_premium) || 0}`),
-        },
-      });
+
+      // Auto-create commission record
+      if (savedPolicy) {
+        await autoCreateCommission(savedPolicy.id, savedPolicy.intermediary_id, insurerId, premiumAmount);
+        // Show success modal
+        setSuccessPolicy(savedPolicy as PolicyWithRelations);
+        setSuccessModalOpen(true);
+      }
+
       setReviewOpen(false);
       fetchData();
     } catch (e: any) { toast.error(e.message || "Save failed"); }
@@ -605,18 +735,83 @@ const Policies = () => {
     try {
       const documentRef = policy.original_document_url;
       const isLegacyUrl = /^https?:\/\//i.test(documentRef);
-      const { data, error } = await supabase.functions.invoke("extract-policy-data", {
-        body: isLegacyUrl
+      const { data, error } = await invokeExtractPolicyData(
+        isLegacyUrl
           ? { policyId: policy.id, documentUrl: documentRef }
-          : { policyId: policy.id, documentPath: documentRef },
-      });
-      if (error) throw error;
+          : { policyId: policy.id, documentPath: documentRef }
+      );
+      if (error) {
+        const detail = await getFunctionErrorMessage(error, "OCR extraction failed");
+        throw new Error(detail);
+      }
+
+      const normalizedExtractedData = normalizeExtractedData(data);
+      if (!Object.keys(normalizedExtractedData).length) {
+        throw new Error("AI OCR returned no fields. Please upload a clearer document and try again.");
+      }
+
       toast.success("Data extracted successfully");
       fetchData();
-    } catch (e: any) { toast.error(e.message || "OCR extraction failed"); }
+    } catch (e: any) { toast.error(toFriendlyAuthMessage(e.message || "OCR extraction failed")); }
   };
 
   const formatCurrency = (n: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
+
+  const openSendQuotation = (p: PolicyWithRelations) => {
+    setSendingPolicy(p);
+    setSendPaymentLink("");
+    setSendWhatsApp(true);
+    setSendEmail(false);
+    setSendQuotationOpen(true);
+  };
+
+  const handleSendQuotation = async () => {
+    if (!sendingPolicy || !profileId) return;
+    if (!sendWhatsApp && !sendEmail) {
+      toast.error("Please select at least one channel (WhatsApp or Email)");
+      return;
+    }
+    setSendingQuotation(true);
+    try {
+      const channels: string[] = [];
+      if (sendWhatsApp) channels.push("whatsapp");
+      if (sendEmail) channels.push("email");
+
+      // Create quotation record
+      const { data: quotation, error: qErr } = await supabase
+        .from("quotations")
+        .insert({
+          client_id: sendingPolicy.client_id,
+          policy_id: sendingPolicy.id,
+          amount: sendingPolicy.premium_amount || null,
+          sent_via: channels.join(","),
+          payment_status: "pending" as const,
+          intermediary_id: profileId,
+          sent_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (qErr) throw qErr;
+
+      // Invoke send-quotation edge function if email channel selected
+      if (sendEmail && quotation) {
+        const { error: fnErr } = await supabase.functions.invoke("send-quotation", {
+          body: { quotationId: quotation.id },
+        });
+        if (fnErr) toast.warning("Quotation created but email delivery failed");
+      }
+
+      setSendQuotationOpen(false);
+      toast.success("Quotation sent successfully", {
+        description: `Sent via ${channels.join(" & ")} for ${sendingPolicy.policy_number}`,
+      });
+    } catch (e: any) {
+      toast.error(e.message || "Failed to send quotation");
+    } finally {
+      setSendingQuotation(false);
+    }
+  };
 
   const renderField = (label: string, value: any) => {
     if (!value && value !== 0) return null;
@@ -800,6 +995,7 @@ const Policies = () => {
                 setExtractedData(null);
                 setExtractionStep(0);
                 setReviewEditMode(true);
+                setUploadIntermediaryId("");
                 setUploadExtractOpen(true);
               }}>
               <Upload className="h-4 w-4" /> Upload & Extract
@@ -842,6 +1038,7 @@ const Policies = () => {
                         <div className="flex gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setViewingPolicy(p); setViewOpen(true); }}><Eye className="h-3.5 w-3.5" /></Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p)}><Pencil className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" title="Send Quotation" onClick={() => openSendQuotation(p)}><Send className="h-3.5 w-3.5" /></Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { setDeletingPolicy(p); setDeleteOpen(true); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                         </div>
                       </TableCell>
@@ -925,6 +1122,21 @@ const Policies = () => {
                     </SelectContent>
                   </Select>
                 </div>
+                {isAdmin && (
+                  <div className="space-y-2">
+                    <Label>Issued By (Intermediary) *</Label>
+                    <Select value={uploadIntermediaryId} onValueChange={setUploadIntermediaryId}>
+                      <SelectTrigger><SelectValue placeholder="Select intermediary" /></SelectTrigger>
+                      <SelectContent>
+                        {intermediaries.map((i) => (
+                          <SelectItem key={i.id} value={i.id}>
+                            {i.full_name}{i.intermediary_code ? ` (${i.intermediary_code})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
               <div className="border-2 border-dashed border-primary/30 rounded-lg p-8 text-center hover:border-primary/50 transition-colors">
                 <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
@@ -1299,6 +1511,130 @@ const Policies = () => {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Send Quotation Modal */}
+      <Dialog open={sendQuotationOpen} onOpenChange={setSendQuotationOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Quotation</DialogTitle>
+            <DialogDescription>
+              Send the quotation to the client via WhatsApp or Email.
+              {sendingPolicy && (
+                <span className="block mt-1 text-foreground font-medium">
+                  Policy: {sendingPolicy.policy_number} — {formatCurrency(sendingPolicy.premium_amount)}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Payment Link (optional)</Label>
+              <Input
+                placeholder="https://razorpay.com/pay/..."
+                value={sendPaymentLink}
+                onChange={(e) => setSendPaymentLink(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Paste the payment link from Razorpay, PhonePe, etc.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Send via</Label>
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="sq-whatsapp"
+                    checked={sendWhatsApp}
+                    onCheckedChange={(c) => setSendWhatsApp(!!c)}
+                  />
+                  <label htmlFor="sq-whatsapp" className="text-sm cursor-pointer">WhatsApp</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="sq-email"
+                    checked={sendEmail}
+                    onCheckedChange={(c) => setSendEmail(!!c)}
+                  />
+                  <label htmlFor="sq-email" className="text-sm cursor-pointer">Email</label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSendQuotationOpen(false)} disabled={sendingQuotation}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSendQuotation}
+              disabled={sendingQuotation || (!sendWhatsApp && !sendEmail)}
+            >
+              {sendingQuotation ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending...</>
+              ) : (
+                <><Send className="h-4 w-4 mr-2" />Send Quotation</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Post-Save Success Modal */}
+      <Dialog open={successModalOpen} onOpenChange={setSuccessModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-success" />
+              Policy Saved Successfully
+            </DialogTitle>
+            <DialogDescription>Your policy has been saved. What would you like to do next?</DialogDescription>
+          </DialogHeader>
+          {successPolicy && (
+            <div className="space-y-3 py-2">
+              <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-muted-foreground text-xs">Policy #</span>
+                    <p className="font-mono font-medium">{successPolicy.policy_number}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">Premium</span>
+                    <p className="font-medium">{formatCurrency(successPolicy.premium_amount)}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">Client</span>
+                    <p>{successPolicy.clients?.full_name || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">Insurer</span>
+                    <p>{successPolicy.insurers?.name || "—"}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="flex gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => {
+              setSuccessModalOpen(false);
+              if (successPolicy) {
+                setViewingPolicy(successPolicy);
+                setViewOpen(true);
+              }
+            }}>
+              <Eye className="h-4 w-4 mr-2" />
+              View Policy
+            </Button>
+            <Button onClick={() => {
+              setSuccessModalOpen(false);
+              if (successPolicy) {
+                openSendQuotation(successPolicy);
+              }
+            }}>
+              <Send className="h-4 w-4 mr-2" />
+              Send Quotation
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

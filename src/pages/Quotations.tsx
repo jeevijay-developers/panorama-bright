@@ -4,12 +4,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Search, Pencil, Trash2, Eye } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Eye, Send, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -49,6 +50,14 @@ const Quotations = () => {
   const [viewingItem, setViewingItem] = useState<QuotationWithRelations | null>(null);
   const [deletingItem, setDeletingItem] = useState<QuotationWithRelations | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Send Quotation modal state
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [sendingItem, setSendingItem] = useState<QuotationWithRelations | null>(null);
+  const [sendPaymentLink, setSendPaymentLink] = useState("");
+  const [sendWhatsApp, setSendWhatsApp] = useState(true);
+  const [sendEmail, setSendEmail] = useState(false);
+  const [sendingQuotation, setSendingQuotation] = useState(false);
 
   const [formData, setFormData] = useState({
     client_id: "", policy_id: "", amount: "", sent_via: "email", payment_status: "pending",
@@ -149,6 +158,53 @@ const Quotations = () => {
 
   const formatCurrency = (n: number | null) => n ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n) : "—";
 
+  const openSendModal = (q: QuotationWithRelations) => {
+    setSendingItem(q);
+    setSendPaymentLink("");
+    setSendWhatsApp(true);
+    setSendEmail(false);
+    setSendModalOpen(true);
+  };
+
+  const handleSendQuotation = async () => {
+    if (!sendingItem) return;
+    if (!sendWhatsApp && !sendEmail) {
+      toast.error("Please select at least one channel");
+      return;
+    }
+    setSendingQuotation(true);
+    try {
+      const channels: string[] = [];
+      if (sendWhatsApp) channels.push("whatsapp");
+      if (sendEmail) channels.push("email");
+
+      // Update sent_via and sent_at on existing quotation
+      const { error: updErr } = await supabase
+        .from("quotations")
+        .update({ sent_via: channels.join(","), sent_at: new Date().toISOString() })
+        .eq("id", sendingItem.id);
+      if (updErr) throw updErr;
+
+      // Invoke send-quotation edge function if email selected
+      if (sendEmail) {
+        const { error: fnErr } = await supabase.functions.invoke("send-quotation", {
+          body: { quotationId: sendingItem.id },
+        });
+        if (fnErr) toast.warning("Quotation marked sent but email delivery failed");
+      }
+
+      setSendModalOpen(false);
+      toast.success("Quotation sent successfully", {
+        description: `Sent via ${channels.join(" & ")}`,
+      });
+      fetchData();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to send quotation");
+    } finally {
+      setSendingQuotation(false);
+    }
+  };
+
   useSetPageTitle("Quotations");
 
   return (
@@ -184,6 +240,7 @@ const Quotations = () => {
                   <TableHead className="text-muted-foreground text-xs">Amount</TableHead>
                   <TableHead className="text-muted-foreground text-xs">Sent Via</TableHead>
                   <TableHead className="text-muted-foreground text-xs">Sent At</TableHead>
+                  <TableHead className="text-muted-foreground text-xs">Status</TableHead>
                   <TableHead className="text-muted-foreground text-xs">Payment</TableHead>
                   <TableHead className="text-muted-foreground text-xs">Actions</TableHead>
                 </TableRow>
@@ -202,12 +259,24 @@ const Quotations = () => {
                       <TableCell className="text-muted-foreground capitalize">{q.sent_via || "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{q.sent_at ? new Date(q.sent_at).toLocaleDateString() : "—"}</TableCell>
                       <TableCell>
+                        {q.sent_at ? (
+                          <Badge variant="outline" className="bg-success/10 text-success border-success/30">Sent</Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">Pending</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
                         <Badge variant="outline" className={paymentColor[q.payment_status]}>{paymentLabel[q.payment_status]}</Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setViewingItem(q); setViewOpen(true); }}><Eye className="h-3.5 w-3.5" /></Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(q)}><Pencil className="h-3.5 w-3.5" /></Button>
+                          {!q.sent_at && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" title="Send Quotation" onClick={() => openSendModal(q)}>
+                              <Send className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { setDeletingItem(q); setDeleteOpen(true); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                         </div>
                       </TableCell>
@@ -219,6 +288,67 @@ const Quotations = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Send Quotation Modal */}
+      <Dialog open={sendModalOpen} onOpenChange={setSendModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Quotation</DialogTitle>
+            <DialogDescription>
+              Send the quotation to the client via WhatsApp or Email with an optional payment link.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Payment Link (optional)</Label>
+              <Input
+                placeholder="https://razorpay.com/pay/..."
+                value={sendPaymentLink}
+                onChange={(e) => setSendPaymentLink(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Paste the payment link from Razorpay, PhonePe, etc.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Send via</Label>
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="q-whatsapp"
+                    checked={sendWhatsApp}
+                    onCheckedChange={(c) => setSendWhatsApp(!!c)}
+                  />
+                  <label htmlFor="q-whatsapp" className="text-sm cursor-pointer">WhatsApp</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="q-email"
+                    checked={sendEmail}
+                    onCheckedChange={(c) => setSendEmail(!!c)}
+                  />
+                  <label htmlFor="q-email" className="text-sm cursor-pointer">Email</label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSendModalOpen(false)} disabled={sendingQuotation}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSendQuotation}
+              disabled={sendingQuotation || (!sendWhatsApp && !sendEmail)}
+            >
+              {sendingQuotation ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending...</>
+              ) : (
+                <><Send className="h-4 w-4 mr-2" />Send Quotation</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add/Edit Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
