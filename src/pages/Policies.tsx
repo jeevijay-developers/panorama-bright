@@ -95,8 +95,8 @@ const Policies = () => {
   const [sendQuotationOpen, setSendQuotationOpen] = useState(false);
   const [sendingPolicy, setSendingPolicy] = useState<PolicyWithRelations | null>(null);
   const [sendPaymentLink, setSendPaymentLink] = useState("");
-  const [sendWhatsApp, setSendWhatsApp] = useState(true);
-  const [sendEmail, setSendEmail] = useState(false);
+  const [sendWhatsApp, setSendWhatsApp] = useState(false);
+  const [sendEmail, setSendEmail] = useState(true);
   const [sendingQuotation, setSendingQuotation] = useState(false);
 
   // Intermediary list for admin to select who issued the policy
@@ -760,8 +760,8 @@ const Policies = () => {
   const openSendQuotation = (p: PolicyWithRelations) => {
     setSendingPolicy(p);
     setSendPaymentLink("");
-    setSendWhatsApp(true);
-    setSendEmail(false);
+    setSendWhatsApp(false);
+    setSendEmail(true);
     setSendQuotationOpen(true);
   };
 
@@ -1543,13 +1543,14 @@ const Policies = () => {
             <div className="space-y-2">
               <Label>Send via</Label>
               <div className="flex items-center gap-6">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 text-muted-foreground">
                   <Checkbox
                     id="sq-whatsapp"
                     checked={sendWhatsApp}
+                    disabled
                     onCheckedChange={(c) => setSendWhatsApp(!!c)}
                   />
-                  <label htmlFor="sq-whatsapp" className="text-sm cursor-pointer">WhatsApp</label>
+                  <label htmlFor="sq-whatsapp" className="text-sm cursor-not-allowed">WhatsApp</label>
                 </div>
                 <div className="flex items-center gap-2">
                   <Checkbox

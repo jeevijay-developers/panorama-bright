@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -25,6 +27,11 @@ interface RenewalPolicy extends Policy {
 
 const statusColor: Record<string, string> = {
   upcoming: "bg-info/10 text-info border-info/30",
+  "in-discussion": "bg-primary/10 text-primary border-primary/30",
+  contacted: "bg-blue-500/10 text-blue-500 border-blue-500/30",
+  pending: "bg-orange-500/10 text-orange-500 border-orange-500/30",
+  paid: "bg-success/10 text-success border-success/30",
+  cancelled: "bg-muted text-muted-foreground border-muted",
   reminder_sent: "bg-warning/10 text-warning border-warning/30",
   renewed: "bg-success/10 text-success border-success/30",
   lapsed: "bg-destructive/10 text-destructive border-destructive/30",
@@ -32,6 +39,11 @@ const statusColor: Record<string, string> = {
 
 const statusLabel: Record<string, string> = {
   upcoming: "Upcoming",
+  "in-discussion": "In Discussion",
+  contacted: "Contacted",
+  pending: "Pending",
+  paid: "Paid",
+  cancelled: "Cancelled",
   reminder_sent: "Reminder Sent",
   renewed: "Renewed",
   lapsed: "Lapsed",
@@ -129,6 +141,11 @@ const Renewals = () => {
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="upcoming">Upcoming</SelectItem>
+                <SelectItem value="in-discussion">In Discussion</SelectItem>
+                <SelectItem value="contacted">Contacted</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
                 <SelectItem value="reminder_sent">Reminder Sent</SelectItem>
                 <SelectItem value="renewed">Renewed</SelectItem>
                 <SelectItem value="lapsed">Lapsed</SelectItem>
@@ -172,20 +189,27 @@ const Renewals = () => {
                         <Badge variant="outline" className={statusColor[p.renewal_status]}>{statusLabel[p.renewal_status]}</Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-1">
+                        <div className="flex gap-1 items-center">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setViewingItem(p); setViewOpen(true); }}>
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
-                          {p.renewal_status === "upcoming" && (
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-warning" title="Send Reminder" onClick={() => handleStatusChange(p, "reminder_sent")}>
-                              <Bell className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          {(p.renewal_status === "upcoming" || p.renewal_status === "reminder_sent") && (
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-success" title="Mark Renewed" onClick={() => handleStatusChange(p, "renewed")}>
-                              <CheckCircle className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" title="Change Status">
+                                <MoreHorizontal className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleStatusChange(p, "upcoming")}>Upcoming</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleStatusChange(p, "in-discussion")}>In Discussion</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleStatusChange(p, "contacted")}>Contacted</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleStatusChange(p, "pending")}>Pending</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleStatusChange(p, "paid")}>Paid/Renewed</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleStatusChange(p, "cancelled")}>Cancelled</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleStatusChange(p, "lapsed")}>Lapsed</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleStatusChange(p, "reminder_sent")}>Send/Resend Reminder</DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -248,3 +272,5 @@ const Renewals = () => {
 };
 
 export default Renewals;
+
+

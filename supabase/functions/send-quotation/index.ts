@@ -148,7 +148,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: Deno.env.get("RESEND_FROM_EMAIL") || "RiskMarshal <onboarding@resend.dev>",
+        from: Deno.env.get("RESEND_FROM_EMAIL") || "RiskMarshal <noreply@riskmarshall.in>",
         to: [client.email],
         subject: `Your Insurance Quotation – ${amount}`,
         html: emailHtml,
