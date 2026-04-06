@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from "react";
 import { useSetPageTitle } from "@/contexts/PageTitleContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Eye, Trash2, X } from "lucide-react";
+import { Plus, Eye, EyeOff, Trash2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -55,6 +56,7 @@ const StaffPage = () => {
   const [viewingAssociations, setViewingAssociations] = useState<InsurerAssociation[]>([]);
   const [saving, setSaving] = useState(false);
   const [insurers, setInsurers] = useState<Insurer[]>([]);
+  const [showPassword, setShowPassword] = useState(false);
 
   const [formData, setFormData] = useState({
     full_name: "", email: "", password: "", role: "intermediary",
@@ -132,6 +134,9 @@ const StaffPage = () => {
       if (!session) throw new Error("Not authenticated");
 
       const res = await supabase.functions.invoke("create-user", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: {
           email: formData.email.trim(),
           password: formData.password,
@@ -184,6 +189,7 @@ const StaffPage = () => {
       setAddOpen(false);
       setFormData({ full_name: "", email: "", password: "", role: "intermediary", phone: "", intermediary_code: "" });
       setFormAssociations([]);
+      setShowPassword(false);
       fetchUsers();
     } catch (e: any) {
       toast.error(e.message || "Failed to create user");
@@ -223,6 +229,7 @@ const StaffPage = () => {
               <Button className="gap-2" size="sm" onClick={() => {
                 setFormData({ full_name: "", email: "", password: "", role: "intermediary", phone: "", intermediary_code: "" });
                 setFormAssociations([]);
+                setShowPassword(false);
                 setAddOpen(true);
               }}>
                 <Plus className="h-4 w-4" /> Add User
@@ -294,7 +301,25 @@ const StaffPage = () => {
             </div>
             <div className="space-y-2">
               <Label>Password *</Label>
-              <Input type="password" placeholder="Min 6 characters" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Min 6 characters"
+                  className="pr-10"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Role *</Label>
@@ -377,7 +402,7 @@ const StaffPage = () => {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setAddOpen(false); setShowPassword(false); }}>Cancel</Button>
             <Button onClick={handleCreateUser} disabled={saving}>{saving ? "Creating..." : "Create User"}</Button>
           </DialogFooter>
         </DialogContent>

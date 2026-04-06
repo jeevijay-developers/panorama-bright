@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from "react";
 import { useSetPageTitle } from "@/contexts/PageTitleContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -85,6 +86,9 @@ const SettingsPage = () => {
       if (!session) throw new Error("Not authenticated");
 
       const res = await supabase.functions.invoke("create-user", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: {
           email: formData.email.trim(),
           password: formData.password,
