@@ -519,6 +519,50 @@ export type Database = {
           },
         ]
       }
+      reminders_log: {
+        Row: {
+          id: string
+          policy_id: string
+          days_before: number
+          type: string
+          sent_to: string | null
+          success: boolean
+          error_message: string | null
+          sent_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          policy_id: string
+          days_before: number
+          type?: string
+          sent_to?: string | null
+          success?: boolean
+          error_message?: string | null
+          sent_at?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          policy_id?: string
+          days_before?: number
+          type?: string
+          sent_to?: string | null
+          success?: boolean
+          error_message?: string | null
+          sent_at?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reminders_log_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       renewal_config: {
         Row: {
           client_email_template: string

@@ -104,7 +104,10 @@ const Reports = () => {
   const fetchReportData = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
+      if (!session) {
+        toast.error("You must be logged in to generate reports.");
+        return null;
+      }
 
       const payload = {
         reportType,
@@ -112,28 +115,28 @@ const Reports = () => {
         dateTo: dateTo || undefined,
       };
 
+      // NOTE: supabase.functions.invoke() automatically attaches the user's JWT
+      // from the active session — do NOT manually set Authorization header as it
+      // causes conflicts with the client's own auth injection, resulting in 401s.
       const { data, error } = await supabase.functions.invoke("fetch-report-data", {
         body: payload,
-        headers: { Authorization: `Bearer ${session.access_token}` },
       });
 
       if (error) {
-        // If the edge function returns an error structure inside `data` (like { error: 'message' })
-        // supabase.functions.invoke might catch the HTTP error code, but let's be thorough.
-        throw new Error(error.message || "Failed to fetch report data");
+        throw new Error(error.message || "Failed to fetch report data from server.");
       }
       
       const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
       if (parsedData?.error) throw new Error(parsedData.error);
       
       if (!parsedData || parsedData.length === 0) {
-         toast.info("No data found for this date range.");
+         toast.info("No data found for this report type / date range.");
          return null;
       }
       return parsedData;
     } catch (err: any) {
       console.error("fetchReportData error:", err);
-      toast.error(err.message || "An error occurred");
+      toast.error(err.message || "An unexpected error occurred. Please try again.");
       return null;
     }
   };

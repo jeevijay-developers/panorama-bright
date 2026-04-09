@@ -14,7 +14,7 @@ const corsHeaders = {
 // Instead we use the service role key inside the function for all data access,
 // which is safe since this function only sends emails — it does not expose any
 // user data externally.
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === "OPTIONS")
     return new Response(null, { headers: corsHeaders });
 
