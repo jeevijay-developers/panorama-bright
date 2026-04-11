@@ -115,11 +115,11 @@ const Reports = () => {
         dateTo: dateTo || undefined,
       };
 
-      // NOTE: supabase.functions.invoke() automatically attaches the user's JWT
-      // from the active session — do NOT manually set Authorization header as it
-      // causes conflicts with the client's own auth injection, resulting in 401s.
       const { data, error } = await supabase.functions.invoke("fetch-report-data", {
         body: payload,
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
       });
 
       if (error) {

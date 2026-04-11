@@ -1,0 +1,240 @@
+# Page snapshot
+
+```yaml
+- generic:
+  - generic:
+    - list
+    - region "Notifications alt+T"
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - img
+              - generic:
+                - generic:
+                  - generic: Main
+                  - generic:
+                    - list:
+                      - listitem:
+                        - link:
+                          - /url: /
+                          - img
+                          - generic: Dashboard
+                      - listitem:
+                        - link:
+                          - /url: /clients
+                          - img
+                          - generic: Clients
+                      - listitem:
+                        - link:
+                          - /url: /policies
+                          - img
+                          - generic: Policies
+                      - listitem:
+                        - link:
+                          - /url: /quotations
+                          - img
+                          - generic: Quotations
+                      - listitem:
+                        - link:
+                          - /url: /renewals
+                          - img
+                          - generic: Renewals
+                      - listitem:
+                        - link:
+                          - /url: /leads
+                          - img
+                          - generic: Leads
+                - generic:
+                  - generic: Administration
+                  - generic:
+                    - list:
+                      - listitem:
+                        - link:
+                          - /url: /insurers
+                          - img
+                          - generic: Insurers
+                      - listitem:
+                        - link:
+                          - /url: /commissions
+                          - img
+                          - generic: Commissions
+                      - listitem:
+                        - link:
+                          - /url: /reports
+                          - img
+                          - generic: Reports
+                      - listitem:
+                        - link:
+                          - /url: /staff
+                          - img
+                          - generic: Staff
+                      - listitem:
+                        - link:
+                          - /url: /settings
+                          - img
+                          - generic: Settings
+              - generic:
+                - generic:
+                  - paragraph: admin@riskmarshal.com
+                  - paragraph: super_admin
+                - list:
+                  - listitem:
+                    - button:
+                      - img
+                      - generic: Logout
+        - generic:
+          - banner:
+            - generic:
+              - button:
+                - img
+                - generic: Toggle Sidebar
+              - heading [level=1]: Staff Management
+            - generic:
+              - button:
+                - img
+              - button:
+                - img
+              - generic: AD
+          - main:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - heading [level=3]: User Management
+                    - button:
+                      - img
+                      - text: Add User
+                - generic:
+                  - generic:
+                    - table:
+                      - rowgroup:
+                        - row:
+                          - columnheader: Name
+                          - columnheader: Code
+                          - columnheader: Email
+                          - columnheader: Phone
+                          - columnheader: Role
+                          - columnheader: Status
+                          - columnheader: Actions
+                      - rowgroup:
+                        - row:
+                          - cell: Rajesh Kumar
+                          - cell: IRM-RK-001
+                          - cell: rajesh.kumar@intermediary.com
+                          - cell: +91-9812345601
+                          - cell:
+                            - generic: Intermediary
+                          - cell:
+                            - generic: Active
+                          - cell:
+                            - button:
+                              - img
+                        - row:
+                          - cell: Priya Sharma
+                          - cell: IRM-PS-002
+                          - cell: priya.sharma@intermediary.com
+                          - cell: +91-9812345602
+                          - cell:
+                            - generic: Intermediary
+                          - cell:
+                            - generic: Active
+                          - cell:
+                            - button:
+                              - img
+                        - row:
+                          - cell: Amit Verma
+                          - cell: IRM-AV-003
+                          - cell: amit.verma@intermediary.com
+                          - cell: +91-9812345603
+                          - cell:
+                            - generic: Intermediary
+                          - cell:
+                            - generic: Active
+                          - cell:
+                            - button:
+                              - img
+                        - row:
+                          - cell: Sunita Patel
+                          - cell: IRM-SP-004
+                          - cell: sunita.patel@intermediary.com
+                          - cell: +91-9812345604
+                          - cell:
+                            - generic: Intermediary
+                          - cell:
+                            - generic: Active
+                          - cell:
+                            - button:
+                              - img
+                        - row:
+                          - cell: Vikram Singh
+                          - cell: IRM-VS-005
+                          - cell: vikram.singh@intermediary.com
+                          - cell: +91-9812345605
+                          - cell:
+                            - generic: Intermediary
+                          - cell:
+                            - generic: Active
+                          - cell:
+                            - button:
+                              - img
+                        - row:
+                          - cell: Akhilesh Jain
+                          - cell: —
+                          - cell: admin@riskmarshal.com
+                          - cell: —
+                          - cell:
+                            - generic: Super Admin
+                          - cell:
+                            - generic: Active
+                          - cell:
+                            - button:
+                              - img
+  - dialog "Create New User" [ref=e2]:
+    - generic [ref=e3]:
+      - heading "Create New User" [level=2] [ref=e4]
+      - paragraph [ref=e5]: Create a new account for an intermediary or staff member
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - text: Full Name *
+        - textbox "Enter full name" [ref=e8]: Test Intermediary
+      - generic [ref=e9]:
+        - text: Email *
+        - textbox "user@example.com" [ref=e10]: intermediary_1775897075222@riskmarshal.test
+      - generic [ref=e11]:
+        - text: Password *
+        - generic [ref=e12]:
+          - textbox "Min 6 characters" [active] [ref=e13]: Intermediary@1234
+          - button "Show password" [ref=e14] [cursor=pointer]:
+            - img
+      - generic [ref=e15]:
+        - text: Role *
+        - combobox [ref=e16] [cursor=pointer]:
+          - generic: Intermediary
+          - img [ref=e17]
+      - generic [ref=e19]:
+        - paragraph [ref=e20]: Intermediary Details
+        - generic [ref=e21]:
+          - generic [ref=e22]:
+            - text: Intermediary Code *
+            - textbox "e.g., ILG49754" [ref=e23]
+          - generic [ref=e24]:
+            - text: Contact Number *
+            - textbox "e.g., 9425011003" [ref=e25]
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - generic [ref=e28]: Insurer Associations *
+            - button "Add Insurer" [ref=e29] [cursor=pointer]:
+              - img
+              - text: Add Insurer
+          - paragraph [ref=e30]: Click "Add Insurer" to associate this intermediary with insurers and set commission rates.
+    - generic [ref=e31]:
+      - button "Cancel" [ref=e32] [cursor=pointer]
+      - button "Create User" [ref=e33] [cursor=pointer]
+    - button "Close" [ref=e34] [cursor=pointer]:
+      - img [ref=e35]
+      - generic [ref=e38]: Close
+```

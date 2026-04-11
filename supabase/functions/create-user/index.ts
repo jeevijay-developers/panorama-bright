@@ -21,12 +21,13 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
 
     // Validate JWT and resolve caller identity.
     const {
       data: { user: caller },
       error: authError,
-    } = await adminClient.auth.getUser(token);
+    } = await anonClient.auth.getUser(token);
     if (authError || !caller) throw new Error("Unauthorized");
 
     // Check if caller is super_admin

@@ -16,8 +16,26 @@ serve(async (req: Request) => {
   }
 
   try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      throw new Error("Missing Authorization header");
+    }
+    const token = authHeader.replace("Bearer ", "");
+
+    const authClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+    );
+    const { data: authData, error: authError } = await authClient.auth.getUser(token);
+    
+    if (authError || !authData.user) {
+      return new Response(JSON.stringify({ error: "Invalid JWT signature" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401,
+      });
+    }
+
     // Use service role key for reporting — this is admin-level data access.
-    // JWT authenticity is verified by the Supabase relay (verify_jwt: true in config.toml).
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
@@ -29,9 +47,16 @@ serve(async (req: Request) => {
       throw new Error("Missing reportType parameter");
     }
 
-    // Normalise date bounds
-    const from = dateFrom || "1970-01-01";
-    const to = dateTo || "2100-01-01";
+    // Normalize date bounds.
+    // Timestamp columns must include full-day windows; date columns use plain YYYY-MM-DD.
+    const timestampFrom = dateFrom
+      ? `${dateFrom}T00:00:00.000Z`
+      : "1970-01-01T00:00:00.000Z";
+    const timestampTo = dateTo
+      ? `${dateTo}T23:59:59.999Z`
+      : "2100-01-01T23:59:59.999Z";
+    const renewalFrom = dateFrom || new Date().toISOString().split("T")[0];
+    const renewalTo = dateTo || "2100-01-01";
 
     let data: any[] = [];
     let error: any = null;
@@ -49,8 +74,8 @@ serve(async (req: Request) => {
             policies ( policy_number, policy_type ),
             profiles!commissions_intermediary_id_fkey ( full_name )
           `)
-          .gte("created_at", from)
-          .lte("created_at", to);
+          .gte("created_at", timestampFrom)
+          .lte("created_at", timestampTo);
         data = pcData ?? [];
         error = pcError;
         break;
@@ -69,8 +94,8 @@ serve(async (req: Request) => {
             premium_amount,
             clients ( full_name, email, phone )
           `)
-          .gte("end_date", dateFrom || new Date().toISOString().split("T")[0])
-          .lte("end_date", to);
+          .gte("end_date", renewalFrom)
+          .lte("end_date", renewalTo);
         data = renewData ?? [];
         error = renewError;
         break;
@@ -86,8 +111,8 @@ serve(async (req: Request) => {
             created_at,
             profiles!policies_intermediary_id_fkey ( full_name, intermediary_code )
           `)
-          .gte("created_at", from)
-          .lte("created_at", to);
+          .gte("created_at", timestampFrom)
+          .lte("created_at", timestampTo);
         data = perfData ?? [];
         error = perfError;
         break;
@@ -107,8 +132,8 @@ serve(async (req: Request) => {
             clients ( full_name ),
             insurers ( name )
           `)
-          .gte("created_at", from)
-          .lte("created_at", to);
+          .gte("created_at", timestampFrom)
+          .lte("created_at", timestampTo);
         data = statData ?? [];
         error = statError;
         break;
