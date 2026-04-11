@@ -4,7 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.100.0";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Headers": "Authorization, authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 serve(async (req) => {
@@ -13,24 +13,36 @@ serve(async (req) => {
   try {
     // Verify the caller is authenticated and has super_admin role.
     const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
-    if (!authHeader) throw new Error("Unauthorized");
+    if (!authHeader) throw new Error("Unauthorized: authHeader missing");
 
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-    if (!token) throw new Error("Unauthorized");
+    if (!token) throw new Error("Unauthorized: token missing after replace");
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? '';
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? '';
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? '';
+    
+    if (!supabaseUrl || !supabaseServiceKey || !supabaseAnonKey) {
+      throw new Error("Missing Supabase configuration");
+    }
+    
     const adminClient = createClient(supabaseUrl, supabaseServiceKey);
-    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
+    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
 
     // Validate JWT and resolve caller identity.
     const {
       data: { user: caller },
       error: authError,
-    } = await anonClient.auth.getUser(token);
-    if (authError || !caller) throw new Error("Unauthorized");
+    } = await userClient.auth.getUser(token);
 
-    // Check if caller is super_admin
+    if (authError) {
+      console.error("Auth error exactly:", authError.message, authError.name, authError.status);
+      throw new Error(`Unauthorized: Auth error - ${authError.message}`);
+    }
+    if (!caller) throw new Error("Unauthorized: No caller retrieved");
+
     const { data: roleData, error: roleError } = await adminClient
       .from("user_roles")
       .select("role")
@@ -70,7 +82,7 @@ serve(async (req) => {
   } catch (e) {
     console.error("Error:", e);
     const message = e instanceof Error ? e.message : "Unknown error";
-    const status = message === "Unauthorized" ? 401 : message === "Only super_admin can create users" ? 403 : 400;
+    const status = message.includes("Unauthorized") ? 401 : message.includes("Only super_admin") ? 403 : 400;
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
       status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
